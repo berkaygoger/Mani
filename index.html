@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#6366f1" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Mani — Gelir Gider Takibi</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon.svg" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ÖZET -->
+    <section id="view-home" class="view active"></section>
+
+    <!-- İŞLEMLER -->
+    <section id="view-tx" class="view"></section>
+
+    <!-- ANALİZ -->
+    <section id="view-stats" class="view"></section>
+
+    <!-- AYARLAR -->
+    <section id="view-settings" class="view"></section>
+
+    <!-- Alt navigasyon -->
+    <nav class="nav">
+      <button class="nav-item active" data-nav="home">
+        <span class="ic">🏠</span><span>Özet</span>
+      </button>
+      <button class="nav-item" data-nav="tx">
+        <span class="ic">📋</span><span>İşlemler</span>
+      </button>
+      <div style="width:60px"></div>
+      <button class="nav-item" data-nav="stats">
+        <span class="ic">📊</span><span>Analiz</span>
+      </button>
+      <button class="nav-item" data-nav="settings">
+        <span class="ic">⚙️</span><span>Ayarlar</span>
+      </button>
+    </nav>
+
+    <button class="fab" id="fab" aria-label="İşlem ekle">+</button>
+
+    <!-- Bottom sheet -->
+    <div class="sheet-backdrop" id="backdrop"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="./js/db.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
