@@ -1,0 +1,28 @@
+{
+  "name": "Mani — Gelir Gider Takibi",
+  "short_name": "Mani",
+  "description": "Harcamalarını ve gelirlerini sade ve şık bir şekilde takip et.",
+  "lang": "tr",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1115",
+  "theme_color": "#6366f1",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b93ff"/>
+      <stop offset="0.55" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rise" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1e1b4b" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <rect width="512" height="256" rx="120" fill="url(#gloss)"/>
+
+  <!-- yükselen trend çizgisi -->
+  <polyline points="120,360 200,300 270,330 392,200"
+            fill="none" stroke="url(#rise)" stroke-width="22"
+            stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  <circle cx="392" cy="200" r="20" fill="#ffffff"/>
+
+  <!-- ₺ hero -->
+  <text x="256" y="248" font-family="Segoe UI, Roboto, Arial, sans-serif"
+        font-size="300" font-weight="800" fill="#ffffff"
+        text-anchor="middle" dominant-baseline="middle" filter="url(#soft)">₺</text>
+</svg>
