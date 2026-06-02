@@ -27,7 +27,8 @@ const state = {
   formType: "expense",
   formCat: null,
   formPhoto: null,
-  formCurrency: "TRY"
+  formCurrency: "TRY",
+  view: "home"
 };
 
 /* ----------------------------------------------------------
@@ -118,12 +119,44 @@ function navTo(key) {
   Object.values(VIEWS).forEach((id) => el(id).classList.remove("active"));
   el(VIEWS[key]).classList.add("active");
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.nav === key));
+  state.view = key;
   RENDERERS[key]();
   window.scrollTo(0, 0);
 }
 function refreshActiveView() {
   const active = document.querySelector(".nav-item.active");
   if (active) RENDERERS[active.dataset.nav]();
+}
+
+/* ----------------------------------------------------------
+   Geri tuşu yönetimi (telefonda uygulamadan çıkmayı engeller)
+   - Açık pencere varsa: kapatır
+   - Ana ekranda değilse: ana ekrana döner
+   - Ana ekrandaysa: "tekrar bas" uyarısı, sonra çıkış
+---------------------------------------------------------- */
+let skipPop = false;
+let exitArmed = false;
+
+function handlePop() {
+  if (skipPop) { skipPop = false; return; }
+  if (isSheetOpen()) { doCloseSheet(); return; }
+  if (state.view !== "home") { navTo("home"); history.pushState({ mani: "trap" }, ""); return; }
+  if (!exitArmed) {
+    exitArmed = true;
+    toast("Çıkmak için tekrar geri tuşuna bas");
+    history.pushState({ mani: "trap" }, "");
+    setTimeout(() => { exitArmed = false; }, 2000);
+    return;
+  }
+  // İkinci kez basıldı → çıkışa izin ver
+  skipPop = true;
+  history.back();
+}
+
+function initHistory() {
+  history.replaceState({ mani: "base" }, "");
+  history.pushState({ mani: "trap" }, "");
+  window.addEventListener("popstate", handlePop);
 }
 
 /* ----------------------------------------------------------
@@ -645,14 +678,28 @@ function renderSettings() {
 /* ----------------------------------------------------------
    Bottom Sheet
 ---------------------------------------------------------- */
+function isSheetOpen() { return el("sheet").classList.contains("open"); }
+
 function openSheet(html) {
+  const wasOpen = isSheetOpen();
   el("sheet").innerHTML = '<div class="grabber"></div>' + html;
   el("backdrop").classList.add("open");
   requestAnimationFrame(() => el("sheet").classList.add("open"));
+  // Geri tuşunun pencereyi kapatması için bir geçmiş kaydı ekle (zaten açıksa ekleme)
+  if (!wasOpen) history.pushState({ mani: "sheet" }, "");
 }
-function closeSheet() {
+
+// Sadece DOM'u kapatır (geri tuşu / popstate için)
+function doCloseSheet() {
   el("sheet").classList.remove("open");
   el("backdrop").classList.remove("open");
+}
+
+// Kullanıcı eylemiyle kapatma (kaydet, sil, arka plana dokun): geçmiş kaydını da geri al
+function closeSheet() {
+  if (!isSheetOpen()) return;
+  doCloseSheet();
+  if (history.state && history.state.mani === "sheet") { skipPop = true; history.back(); }
 }
 
 /* ---- İşlem ekle / düzenle ---- */
@@ -937,7 +984,6 @@ function openRecurringForm() {
     };
     await DB.saveRecurring(r); state.recurring.push(r);
     const created = await runRecurring();
-    closeSheet();
     toast(created ? `Eklendi ✓ (${created} kayıt oluşturuldu)` : "Eklendi ✓");
     openRecurringManager(); refreshActiveView();
   });
@@ -1052,6 +1098,7 @@ async function init() {
   await runRecurring();
   bindGlobalEvents();
   navTo("home");
+  initHistory();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
 
