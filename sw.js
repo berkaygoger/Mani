@@ -1,7 +1,7 @@
 // Mani — Service Worker
 // Uygulama kabuğunu önbelleğe alır, böylece internetsiz de açılır.
 
-const CACHE = "mani-v3";
+const CACHE = "mani-v4";
 
 const APP_SHELL = [
   "./",

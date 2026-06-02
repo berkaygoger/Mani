@@ -1,8 +1,8 @@
-// Mani — Veri Katmanı (v2)
+// Mani — Veri Katmanı (v3)
 // Tüm veriler telefonun içinde (IndexedDB) saklanır. Sunucu yok.
 
 const DB_NAME = "mani-db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const DEFAULT_CATEGORIES = [
   // Giderler
@@ -25,6 +25,12 @@ const DEFAULT_CATEGORIES = [
   { id: "cat-diger-gelir", name: "Diğer", type: "income", icon: "➕", color: "#64748b" }
 ];
 
+const DEFAULT_WALLETS = [
+  { id: "w-nakit", name: "Nakit", icon: "💵", color: "#10b981" },
+  { id: "w-kart", name: "Kart", icon: "💳", color: "#6366f1" },
+  { id: "w-banka", name: "Banka", icon: "🏦", color: "#0ea5e9" }
+];
+
 let _db = null;
 
 function openDB() {
@@ -39,19 +45,13 @@ function openDB() {
         tx.createIndex("type", "type");
         tx.createIndex("categoryId", "categoryId");
       }
-      if (!db.objectStoreNames.contains("categories")) {
-        db.createObjectStore("categories", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("meta")) {
-        db.createObjectStore("meta", { keyPath: "key" });
-      }
-      // v2 eklenenler
-      if (!db.objectStoreNames.contains("budgets")) {
-        db.createObjectStore("budgets", { keyPath: "categoryId" });
-      }
-      if (!db.objectStoreNames.contains("recurring")) {
-        db.createObjectStore("recurring", { keyPath: "id" });
-      }
+      if (!db.objectStoreNames.contains("categories")) db.createObjectStore("categories", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("budgets")) db.createObjectStore("budgets", { keyPath: "categoryId" });
+      if (!db.objectStoreNames.contains("recurring")) db.createObjectStore("recurring", { keyPath: "id" });
+      // v3
+      if (!db.objectStoreNames.contains("wallets")) db.createObjectStore("wallets", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("goals")) db.createObjectStore("goals", { keyPath: "id" });
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
@@ -61,106 +61,89 @@ function openDB() {
 function tx(store, mode = "readonly") {
   return openDB().then((db) => db.transaction(store, mode).objectStore(store));
 }
-
 function reqToPromise(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
 }
-
-function getAll(store) {
-  return tx(store).then((s) => reqToPromise(s.getAll()));
-}
-function put(store, value) {
-  return tx(store, "readwrite").then((s) => reqToPromise(s.put(value)));
-}
-function del(store, key) {
-  return tx(store, "readwrite").then((s) => reqToPromise(s.delete(key)));
-}
-function clearStore(store) {
-  return tx(store, "readwrite").then((s) => reqToPromise(s.clear()));
-}
+function getAll(store) { return tx(store).then((s) => reqToPromise(s.getAll())); }
+function put(store, value) { return tx(store, "readwrite").then((s) => reqToPromise(s.put(value))); }
+function del(store, key) { return tx(store, "readwrite").then((s) => reqToPromise(s.delete(key))); }
+function clearStore(store) { return tx(store, "readwrite").then((s) => reqToPromise(s.clear())); }
 
 async function ensureSeed() {
   const cats = await getAll("categories");
-  if (cats.length === 0) {
-    for (const c of DEFAULT_CATEGORIES) await put("categories", c);
-  }
+  if (cats.length === 0) for (const c of DEFAULT_CATEGORIES) await put("categories", c);
+  const wal = await getAll("wallets");
+  if (wal.length === 0) for (const w of DEFAULT_WALLETS) await put("wallets", w);
 }
 
-function uid(prefix = "id") {
-  return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-}
+function uid(prefix = "id") { return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
 
 const DB = {
   open: openDB,
   ensureSeed,
   uid,
 
-  // İşlemler
   getTransactions: () => getAll("transactions"),
   saveTransaction: (t) => put("transactions", t),
   deleteTransaction: (id) => del("transactions", id),
 
-  // Kategoriler
   getCategories: () => getAll("categories"),
   saveCategory: (c) => put("categories", c),
   deleteCategory: (id) => del("categories", id),
 
-  // Bütçeler
   getBudgets: () => getAll("budgets"),
   saveBudget: (b) => put("budgets", b),
   deleteBudget: (categoryId) => del("budgets", categoryId),
 
-  // Tekrarlayan işlemler
   getRecurring: () => getAll("recurring"),
   saveRecurring: (r) => put("recurring", r),
   deleteRecurring: (id) => del("recurring", id),
 
-  // Ayarlar (meta)
+  getWallets: () => getAll("wallets"),
+  saveWallet: (w) => put("wallets", w),
+  deleteWallet: (id) => del("wallets", id),
+
+  getGoals: () => getAll("goals"),
+  saveGoal: (g) => put("goals", g),
+  deleteGoal: (id) => del("goals", id),
+
   getMeta: (key, fallback = null) =>
     tx("meta").then((s) => reqToPromise(s.get(key))).then((r) => (r ? r.value : fallback)),
   setMeta: (key, value) => put("meta", { key, value }),
+  delMeta: (key) => del("meta", key),
 
-  // Yedekleme
   async exportAll() {
-    const [transactions, categories, budgets, recurring] = await Promise.all([
-      getAll("transactions"), getAll("categories"), getAll("budgets"), getAll("recurring")
+    const [transactions, categories, budgets, recurring, wallets, goals] = await Promise.all([
+      getAll("transactions"), getAll("categories"), getAll("budgets"), getAll("recurring"), getAll("wallets"), getAll("goals")
     ]);
     const theme = await this.getMeta("theme", "system");
     const currency = await this.getMeta("currency", "TRY");
     return {
-      app: "Mani",
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      data: { transactions, categories, budgets, recurring, settings: { theme, currency } }
+      app: "Mani", version: 3, exportedAt: new Date().toISOString(),
+      data: { transactions, categories, budgets, recurring, wallets, goals, settings: { theme, currency } }
     };
   },
 
   async importAll(payload, { merge = false } = {}) {
     if (!payload || !payload.data) throw new Error("Geçersiz yedek dosyası.");
-    const { transactions = [], categories = [], budgets = [], recurring = [], settings = {} } = payload.data;
+    const { transactions = [], categories = [], budgets = [], recurring = [], wallets = [], goals = [], settings = {} } = payload.data;
     if (!merge) {
-      await clearStore("transactions");
-      await clearStore("categories");
-      await clearStore("budgets");
-      await clearStore("recurring");
+      await clearStore("transactions"); await clearStore("categories");
+      await clearStore("budgets"); await clearStore("recurring");
+      await clearStore("wallets"); await clearStore("goals");
     }
     for (const c of categories) await put("categories", c);
     for (const t of transactions) await put("transactions", t);
     for (const b of budgets) await put("budgets", b);
     for (const r of recurring) await put("recurring", r);
+    for (const w of wallets) await put("wallets", w);
+    for (const g of goals) await put("goals", g);
     if (settings.theme) await this.setMeta("theme", settings.theme);
     if (settings.currency) await this.setMeta("currency", settings.currency);
   },
 
   async wipe() {
-    await clearStore("transactions");
-    await clearStore("categories");
-    await clearStore("budgets");
-    await clearStore("recurring");
-    await clearStore("meta");
+    for (const s of ["transactions", "categories", "budgets", "recurring", "wallets", "goals", "meta"]) await clearStore(s);
   }
 };
 

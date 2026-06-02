@@ -27,9 +27,21 @@ Bir **PWA** (Progressive Web App) olarak çalışır: tarayıcıda açıp "Ana e
 - **Kişisel enflasyon:** tekrar aldığın ürünlerin fiyat artış ortalaması.
 - **Ürün fiyat geçmişi:** "döner" yaz → ne zaman, nereden, kaça aldığını + en düşük/yüksek/ortalama + artış/azalış okları.
 
+**Güvenlik & gelişmiş (v3):**
+- **🔒 Uygulama kilidi:** açılışta 4 haneli PIN; destekleyen cihazlarda **parmak izi / yüz** ile açma. Arka plandan 20 sn sonra dönünce tekrar kilitlenir.
+- **💳 Cüzdanlar / hesaplar:** Nakit / Kart / Banka (özelleştirilebilir) ayrı bakiyeler + aralarında **transfer**.
+- **💱 Gerçek kur çevirme:** farklı para birimindeki işlemler güncel kura göre ana birime çevrilir (kurlar çevrimiçiyken otomatik güncellenir, çevrimdışı son kuru kullanır).
+- **🎯 Tasarruf hedefleri:** hedef koy, para ekle/çıkar, ilerlemeni gör.
+- **📅 Takvim görünümü:** ayın hangi günü ne harcadığını gör, güne dokun → o günün işlemleri.
+- **📆 Yıllık özet:** Analiz'de Ay/Yıl modu; 12 aylık gelir-gider grafiği.
+- **🔔 Bildirimler:** bütçe aşımı ve yaklaşan tekrarlayan ödemeler için (günde bir, uygulamayı açtığında).
+- **🧾 PDF rapor:** aylık/yıllık özeti yazdır veya "PDF olarak kaydet".
+
 **Veri:**
 - **Yedek al / geri yükle** (JSON) ve **CSV dışa aktarma** (Excel/Sheets).
 - **Kategori yönetimi:** kendi kategorilerini emoji ile ekle/sil.
+
+> Not: Kilit (PIN/biyometrik), bildirimler ve kur çevirme yalnızca **https** üzerinden (Netlify/GitHub Pages gibi) çalışır — dosyayı `file://` ile açınca bu üçü devre dışı kalır. Diğer her şey her durumda çalışır.
 
 ---
 
