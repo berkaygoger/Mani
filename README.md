@@ -17,6 +17,7 @@ Bir **PWA** (Progressive Web App) olarak çalışır: tarayıcıda açıp "Ana e
 **Akıllı:**
 - **🎯 Bütçeler:** kategori başına aylık limit koy; limite yaklaşınca/aşınca uyarı al.
 - **🔁 Tekrarlayan işlemler:** kira, maaş, abonelik gibi düzenli kayıtlar otomatik eklenir (günlük/haftalık/aylık).
+- **💳 Taksitli işlemler:** 1000₺'lik alışverişi 5 taksit seç → her ayın aynı gününe 200₺ olarak otomatik bölünür (`💳 2/5` rozetiyle). Silerken tüm planı ya da tek taksidi seçebilirsin.
 - **⚡ Hızlı ekle:** sık yaptığın harcamalar özet ekranında tek dokunuşla hazır.
 - **🏷️ Otomatik öneri:** daha önce girdiğin işletme/ürün adları yazarken önerilir.
 

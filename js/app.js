@@ -21,7 +21,7 @@ const state = {
   priceSearch: "",
   editId: null,
   formType: "expense", formCat: null, formPhoto: null, formCurrency: "TRY",
-  formWallet: null, formFrom: null, formTo: null,
+  formWallet: null, formFrom: null, formTo: null, formInstallments: 1,
   view: "home"
 };
 
@@ -297,7 +297,7 @@ function txRow(t) {
   const sign = t.type === "income" ? "+" : "−";
   const tags = (t.tags && t.tags.length) ? `<div class="tags-inline">${t.tags.map((x) => `<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>` : "";
   return `<div class="tx" data-edit="${t.id}"><div class="emoji" style="background:${c.color}22">${c.icon}</div>
-    <div class="main"><div class="title">${escapeHtml(title)}${t.photo ? '<span class="clip">📎</span>' : ""}${t.recurringId ? '<span class="clip">🔁</span>' : ""}</div>
+    <div class="main"><div class="title">${escapeHtml(title)}${t.photo ? '<span class="clip">📎</span>' : ""}${t.recurringId ? '<span class="clip">🔁</span>' : ""}${t.installmentCount > 1 ? `<span class="clip">💳${t.installmentNo}/${t.installmentCount}</span>` : ""}</div>
     <div class="meta">${escapeHtml(meta.join(" · "))}</div>${tags}</div>
     <div class="amt ${t.type}">${sign}${money(t.amount, t.currency).replace("-", "")}</div></div>`;
 }
@@ -624,6 +624,7 @@ function openTxForm(data) {
   state.formWallet = src.walletId || (state.wallets[0] && state.wallets[0].id);
   state.formFrom = src.fromWallet || (state.wallets[0] && state.wallets[0].id);
   state.formTo = src.toWallet || (state.wallets[1] && state.wallets[1].id) || (state.wallets[0] && state.wallets[0].id);
+  state.formInstallments = 1;
   const dateDefault = editing ? new Date(src.date) : new Date();
 
   openSheet(`
@@ -650,6 +651,7 @@ function openTxForm(data) {
     <div id="normalFields" class="${state.formType === "transfer" ? "hidden" : ""}">
       <div class="field"><label>Kategori</label><div class="chips" id="fChips"></div></div>
       <div class="field"><label>Cüzdan / hesap</label><div class="chips" id="fWallets"></div></div>
+      <div class="field" id="instField"></div>
       <div class="field"><label>Ne aldın / ne için? <span class="muted">(örn. Porsiyon Döner)</span></label><input class="input" id="fItem" list="dlItems" placeholder="Ürün veya açıklama" value="${escapeHtml(src.item || "")}" /></div>
       <div class="field"><label>Nerede / kimden?</label><input class="input" id="fVendor" list="dlVendors" placeholder="İşletme veya kişi" value="${escapeHtml(src.vendor || "")}" /></div>
       <div class="field"><label>Etiketler <span class="muted">(virgülle ayır)</span></label><input class="input" id="fTags" placeholder="örn. nakit, iş, tatil" value="${escapeHtml((src.tags || []).join(", "))}" /></div>
@@ -665,7 +667,7 @@ function openTxForm(data) {
     <datalist id="dlItems">${distinct("item").map((v) => `<option value="${escapeHtml(v)}">`).join("")}</datalist>
     <datalist id="dlVendors">${distinct("vendor").map((v) => `<option value="${escapeHtml(v)}">`).join("")}</datalist>`);
 
-  renderChips(); renderWalletChips(); renderPhotoBox(); updateConvHint();
+  renderChips(); renderWalletChips(); renderPhotoBox(); updateConvHint(); renderInstField(editing, src);
 
   $("#segType").addEventListener("click", (e) => {
     const b = e.target.closest("[data-type]"); if (!b) return;
@@ -678,7 +680,8 @@ function openTxForm(data) {
   $("#fChips").addEventListener("click", (e) => { const c = e.target.closest("[data-cat]"); if (!c) return; state.formCat = c.dataset.cat; renderChips(); });
   $("#fWallets").addEventListener("click", (e) => { const w = e.target.closest("[data-wal]"); if (!w) return; state.formWallet = w.dataset.wal; renderWalletChips(); });
   $("#fCurrency").addEventListener("change", (e) => { state.formCurrency = e.target.value; $("#curSym").textContent = sym(state.formCurrency); updateConvHint(); });
-  $("#fAmount").addEventListener("input", updateConvHint);
+  $("#fAmount").addEventListener("input", () => { updateConvHint(); updateInstHint(); });
+  $("#fDate").addEventListener("change", updateInstHint);
   $("#fFrom").addEventListener("change", (e) => { state.formFrom = e.target.value; });
   $("#fTo").addEventListener("change", (e) => { state.formTo = e.target.value; });
   $("#fPhoto").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; toast("Fotoğraf işleniyor..."); state.formPhoto = await readPhoto(f); renderPhotoBox(); });
@@ -701,6 +704,36 @@ function renderChips() {
   const cats = state.categories.filter((c) => c.type === state.formType);
   if (!state.formCat && cats.length) state.formCat = cats[0].id;
   box.innerHTML = cats.map((c) => `<button class="chip ${state.formCat === c.id ? "active" : ""}" data-cat="${c.id}"><span class="e">${c.icon}</span>${escapeHtml(c.name)}</button>`).join("");
+}
+
+function addMonths(date, n) {
+  const d = new Date(date), day = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return d;
+}
+function renderInstField(editing, src) {
+  const box = $("#instField"); if (!box) return;
+  if (editing && src && src.installmentCount > 1) {
+    box.innerHTML = `<div class="alert warn" style="margin:0"><span class="ai">💳</span><div>Bu, bir taksit planının <b>${src.installmentNo}/${src.installmentCount}</b> taksidi. Düzenlersen yalnızca bu taksit değişir.</div></div>`;
+    return;
+  }
+  if (editing) { box.innerHTML = ""; return; }
+  const vals = [1, 2, 3, 4, 5, 6, 9, 12];
+  box.innerHTML = `<label>Taksit <span class="muted">(varsayılan tek çekim)</span></label>
+    <div class="chips" id="fInst">${vals.map((v) => `<button class="chip ${state.formInstallments === v ? "active" : ""}" data-inst="${v}">${v === 1 ? "Tek çekim" : v + " taksit"}</button>`).join("")}</div>
+    <div class="conv-hint" id="instHint"></div>`;
+  $("#fInst").addEventListener("click", (e) => { const b = e.target.closest("[data-inst]"); if (!b) return; state.formInstallments = +b.dataset.inst; renderInstField(false, null); updateInstHint(); });
+  updateInstHint();
+}
+function updateInstHint() {
+  const h = $("#instHint"); if (!h) return;
+  const n = state.formInstallments;
+  if (n <= 1) { h.textContent = ""; return; }
+  const amt = parseAmount($("#fAmount") ? $("#fAmount").value : "0");
+  const day = new Date(($("#fDate") && $("#fDate").value) || Date.now()).getDate();
+  if (amt > 0) { const part = Math.round((amt / n) * 100) / 100; h.textContent = `Toplam ${money(amt, state.formCurrency)} → ${n} ay boyunca her ayın ${day}'inde ${money(part, state.formCurrency)}`; }
+  else h.textContent = `${n} eşit taksite bölünür`;
 }
 function renderWalletChips() {
   const box = $("#fWallets"); if (!box) return;
@@ -735,9 +768,26 @@ async function saveTxFromForm() {
   } else {
     if (!state.formCat) { toast("Bir kategori seç"); return; }
     const tags = $("#fTags").value.split(",").map((s) => s.trim()).filter(Boolean);
-    t = { id: state.editId || DB.uid("tx"), type: state.formType, amount, currency: cur, rate, baseAmount: toBase(amount, cur), categoryId: state.formCat, walletId: state.formWallet, item: $("#fItem").value.trim(), vendor: $("#fVendor").value.trim(), tags, note: $("#fNote").value.trim(), photo: state.formPhoto || null, date: dateVal, createdAt };
+    const item = $("#fItem").value.trim(), vendor = $("#fVendor").value.trim(), note = $("#fNote").value.trim();
+
+    // Taksitli: yeni kayıtta aylara böl
+    if (!state.editId && state.formInstallments > 1) {
+      const n = state.formInstallments, total = amount, part = Math.round((total / n) * 100) / 100;
+      const instId = DB.uid("ins"), baseDate = new Date(dateVal);
+      for (let k = 0; k < n; k++) {
+        const partAmt = k === n - 1 ? Math.round((total - part * (n - 1)) * 100) / 100 : part;
+        const d = addMonths(baseDate, k);
+        const tt = { id: DB.uid("tx"), type: state.formType, amount: partAmt, currency: cur, rate, baseAmount: toBase(partAmt, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: k === 0 ? (state.formPhoto || null) : null, date: toLocalInput(d), createdAt: Date.now() + k, installmentId: instId, installmentNo: k + 1, installmentCount: n, installmentTotal: total };
+        await DB.saveTransaction(tt); state.transactions.push(tt);
+      }
+      await DB.setMeta("lastWallet", state.formWallet);
+      closeSheet(); toast(`${n} taksit oluşturuldu ✓`); refreshActiveView(); return;
+    }
+
+    t = { id: state.editId || DB.uid("tx"), type: state.formType, amount, currency: cur, rate, baseAmount: toBase(amount, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: state.formPhoto || null, date: dateVal, createdAt };
     const old = state.editId && state.transactions.find((x) => x.id === state.editId);
     if (old && old.recurringId) t.recurringId = old.recurringId;
+    if (old && old.installmentId) { t.installmentId = old.installmentId; t.installmentNo = old.installmentNo; t.installmentCount = old.installmentCount; t.installmentTotal = old.installmentTotal; }
     await DB.setMeta("lastWallet", state.formWallet);
   }
 
@@ -748,7 +798,17 @@ async function saveTxFromForm() {
 }
 
 async function deleteTx(id) {
+  const t = state.transactions.find((x) => x.id === id);
   if (!confirm("Bu işlemi silmek istediğine emin misin?")) return;
+  if (t && t.installmentId) {
+    const all = confirm("Bu, bir taksit planının parçası.\n\nTÜM taksitleri silmek için: Tamam\nSadece bu taksidi silmek için: İptal");
+    if (all) {
+      const ids = state.transactions.filter((x) => x.installmentId === t.installmentId).map((x) => x.id);
+      for (const i of ids) await DB.deleteTransaction(i);
+      state.transactions = state.transactions.filter((x) => x.installmentId !== t.installmentId);
+      closeSheet(); toast(`${ids.length} taksit silindi`); refreshActiveView(); return;
+    }
+  }
   await DB.deleteTransaction(id);
   state.transactions = state.transactions.filter((x) => x.id !== id);
   closeSheet(); toast("Silindi"); refreshActiveView();
