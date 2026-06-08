@@ -6,22 +6,23 @@
 ========================================================== */
 const CURRENCIES = ["TRY", "USD", "EUR", "GBP", "CHF", "JPY", "RUB", "AED", "SAR", "BGN"];
 const CURRENCY_SYMBOLS = { TRY: "₺", USD: "$", EUR: "€", GBP: "£", CHF: "Fr", JPY: "¥", RUB: "₽", AED: "د.إ", SAR: "﷼", BGN: "лв" };
+const UNITS = ["adet", "kg", "g", "lt", "ml", "paket", "porsiyon", "kutu", "metre", "düzine"];
 
 /* ==========================================================
    Durum
 ========================================================== */
 const state = {
-  transactions: [], categories: [], budgets: [], recurring: [], wallets: [], goals: [],
+  transactions: [], categories: [], budgets: [], recurring: [], wallets: [], goals: [], prices: [],
   rates: null,
   settings: { theme: "system", currency: "TRY" },
   month: monthKey(new Date()),
   statsMode: "month", statsYear: new Date().getFullYear(),
   txFilter: "all", txRange: "all", txSearch: "", txView: "list",
   calMonth: monthKey(new Date()),
-  priceSearch: "",
+  priceSearch: "", priceCatSearch: "",
   editId: null,
   formType: "expense", formCat: null, formPhoto: null, formCurrency: "TRY",
-  formWallet: null, formFrom: null, formTo: null, formInstallments: 1,
+  formWallet: null, formFrom: null, formTo: null, formInstallments: 1, formItems: [],
   view: "home"
 };
 
@@ -113,8 +114,8 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 /* ==========================================================
    Navigasyon + geri tuşu
 ========================================================== */
-const VIEWS = { home: "view-home", tx: "view-tx", stats: "view-stats", settings: "view-settings" };
-const RENDERERS = { home: renderHome, tx: renderTx, stats: renderStats, settings: renderSettings };
+const VIEWS = { home: "view-home", tx: "view-tx", stats: "view-stats", prices: "view-prices", settings: "view-settings" };
+const RENDERERS = { home: renderHome, tx: renderTx, stats: renderStats, prices: renderPrices, settings: renderSettings };
 
 function navTo(key) {
   Object.values(VIEWS).forEach((id) => el(id).classList.remove("active"));
@@ -214,6 +215,12 @@ function renderHome() {
       `</div>`;
   }
 
+  // Fiyat takibi girişi
+  html += `<button class="card" data-goto="prices" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-top:14px">
+      <span style="font-size:22px">🏷️</span>
+      <span style="flex:1"><span style="font-weight:700;display:block">Fiyat Takibi</span><span class="muted" style="font-size:12.5px">Ürün fiyatlarını kaydet ve karşılaştır</span></span>
+      <span class="muted">›</span></button>`;
+
   html += budgetAlert(thisKey);
 
   // Hedefler
@@ -291,9 +298,10 @@ function txRow(t) {
       <div class="amt" style="color:var(--text-2)">${money(baseOf(t))}</div></div>`;
   }
   const c = catById(t.categoryId);
-  const title = t.item || t.vendor || c.name;
+  const hasItems = t.items && t.items.length;
+  const title = t.item || t.vendor || (hasItems ? `${t.items.length} kalemlik alışveriş` : c.name);
   const w = t.walletId ? walletById(t.walletId) : null;
-  const meta = []; if (t.vendor && t.item) meta.push(t.vendor); meta.push(c.name); if (w) meta.push(w.icon); meta.push(fmtTime(t.date));
+  const meta = []; if (t.vendor && t.item) meta.push(t.vendor); meta.push(c.name); if (hasItems) meta.push(`${t.items.length} kalem`); if (w) meta.push(w.icon); meta.push(fmtTime(t.date));
   const sign = t.type === "income" ? "+" : "−";
   const tags = (t.tags && t.tags.length) ? `<div class="tags-inline">${t.tags.map((x) => `<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>` : "";
   return `<div class="tx" data-edit="${t.id}"><div class="emoji" style="background:${c.color}22">${c.icon}</div>
@@ -542,6 +550,97 @@ function renderPriceHistory() {
 }
 
 /* ==========================================================
+   FİYATLAR (ayrı bölüm)
+========================================================== */
+function trimNum(n) { return Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 3 }); }
+
+// Tüm fiyat noktaları: standalone fiyat kayıtları + gider kalemleri
+function pricePoints() {
+  const pts = [];
+  state.prices.forEach((p) => { const qty = p.qty || 1; pts.push({ name: p.name, unit: p.unit || "adet", unitPrice: p.total / qty, total: p.total, qty, vendor: p.vendor || "", date: p.date, currency: p.currency, src: "price", id: p.id }); });
+  state.transactions.forEach((t) => { if (t.type === "expense" && Array.isArray(t.items)) t.items.forEach((it) => { if (it.name && it.total > 0) { const qty = it.qty || 1; pts.push({ name: it.name, unit: it.unit || "adet", unitPrice: it.total / qty, total: it.total, qty, vendor: t.vendor || "", date: t.date, currency: t.currency, src: "tx", id: t.id }); } }); });
+  return pts;
+}
+function groupedPrices() {
+  const map = {};
+  pricePoints().forEach((p) => { const key = p.name.toLowerCase().trim() + "|" + p.unit; if (!map[key]) map[key] = { key, name: p.name, unit: p.unit, points: [] }; map[key].points.push(p); });
+  const arr = Object.values(map);
+  arr.forEach((g) => g.points.sort((a, b) => a.date < b.date ? -1 : 1));
+  arr.sort((a, b) => a.points[a.points.length - 1].date < b.points[b.points.length - 1].date ? 1 : -1);
+  return arr;
+}
+
+function renderPrices() {
+  const groups = groupedPrices();
+  const q = state.priceCatSearch.toLowerCase().trim();
+  const list = q ? groups.filter((g) => g.name.toLowerCase().includes(q)) : groups;
+
+  let html = `<div class="page-head"><div style="display:flex;align-items:center;gap:10px">
+      <button class="icon-btn" data-goto="home">‹</button>
+      <div><h1>Fiyatlar</h1><div class="sub">${groups.length} ürün takip ediliyor</div></div></div></div>
+    <button class="btn" data-action="add-price" style="margin-bottom:14px">＋ Fiyat ekle</button>
+    <div class="search"><span class="ic">🔍</span><input id="priceCatSearch" placeholder="Ürün ara: domates, süt, ekmek..." value="${escapeHtml(state.priceCatSearch)}" /></div>`;
+
+  if (!list.length) html += emptyState("🏷️", "Henüz fiyat yok", "‘Fiyat ekle’ ile ürün fiyatı kaydet ya da bir giderin içine kalemler ekle — buraya otomatik düşer.");
+  else html += '<div class="price-list">' + list.map(priceItemRow).join("") + "</div>";
+
+  el("view-prices").innerHTML = html;
+  const s = el("priceCatSearch");
+  if (s) s.addEventListener("input", (e) => { state.priceCatSearch = e.target.value; const p = e.target.selectionStart; renderPrices(); const ns = el("priceCatSearch"); if (ns) { ns.focus(); ns.setSelectionRange(p, p); } });
+}
+
+function priceItemRow(g) {
+  const pts = g.points, last = pts[pts.length - 1], prev = pts.length > 1 ? pts[pts.length - 2] : null;
+  let trend = `<div class="ptrend flat">tek kayıt</div>`;
+  if (prev) { const d = last.unitPrice - prev.unitPrice; if (Math.abs(d) < 0.001) trend = `<div class="ptrend flat">≈ sabit</div>`; else if (d > 0) trend = `<div class="ptrend up">▲ ${money(d, last.currency)}</div>`; else trend = `<div class="ptrend down">▼ ${money(-d, last.currency)}</div>`; }
+  return `<div class="price-item" data-price-detail="${escapeHtml(g.key)}">
+    <div class="pemoji">🏷️</div>
+    <div class="pmain"><div class="pname">${escapeHtml(g.name)}</div><div class="pmeta">${pts.length} kayıt · son: ${fmtDateLong(last.date)}</div></div>
+    <div class="pright"><div class="pprice">${money(last.unitPrice, last.currency)}<span class="muted" style="font-weight:400;font-size:12px">/${escapeHtml(g.unit)}</span></div>${trend}</div></div>`;
+}
+
+function openPriceDetail(key) {
+  const g = groupedPrices().find((x) => x.key === key); if (!g) return;
+  const pts = g.points, prices = pts.map((p) => p.unitPrice);
+  const min = Math.min(...prices), max = Math.max(...prices), avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+  let rows = "";
+  [...pts].reverse().forEach((p) => {
+    const idx = pts.indexOf(p), before = idx > 0 ? pts[idx - 1].unitPrice : null;
+    let tr = ""; if (before != null) { const d = p.unitPrice - before; if (d > 0) tr = `<span class="price-trend up">▲ ${money(d, p.currency)}</span>`; else if (d < 0) tr = `<span class="price-trend down">▼ ${money(-d, p.currency)}</span>`; }
+    const where = p.vendor || (p.qty ? `${trimNum(p.qty)} ${p.unit}` : "");
+    rows += `<div class="price-row"><div><div class="when">${fmtDateLong(p.date)}</div><div class="where">${escapeHtml(where)}${p.src === "tx" ? " · giderden" : ""}</div></div><div><span class="price">${money(p.unitPrice, p.currency)}/${escapeHtml(g.unit)}</span>${tr}${p.src === "price" ? ` <button class="price-del" data-del-price="${p.id}" style="color:var(--text-3);margin-left:8px">✕</button>` : ""}</div></div>`;
+  });
+  openSheet(`<h2>${escapeHtml(g.name)} <span class="muted" style="font-size:14px">(${escapeHtml(g.unit)} başına)</span></h2>
+    <div class="stat-grid"><div class="stat"><div class="l">En düşük</div><div class="v" style="font-size:17px">${money(min)}</div></div><div class="stat"><div class="l">En yüksek</div><div class="v" style="font-size:17px">${money(max)}</div></div></div>
+    <div class="stat" style="margin-bottom:10px"><div class="l">Ortalama (${pts.length} kayıt)</div><div class="v" style="font-size:17px">${money(avg)}</div></div>
+    <div class="card">${rows}</div><div class="spacer"></div>`);
+  el("sheet").querySelectorAll("[data-del-price]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("Bu fiyat kaydı silinsin mi?")) return; await DB.deletePrice(b.dataset.delPrice); state.prices = state.prices.filter((x) => x.id !== b.dataset.delPrice); closeSheet(); renderPrices(); }));
+}
+
+function openPriceForm() {
+  const names = [...new Set(pricePoints().map((p) => p.name))].sort();
+  openSheet(`<h2>Fiyat ekle</h2>
+    <div class="muted" style="font-size:13px;margin-bottom:14px">Bir ürünün fiyatını kaydet. Bu harcama olarak sayılmaz; yalnızca fiyat takibi içindir.</div>
+    <div class="field"><label>Ürün</label><input class="input" id="pName" list="dlPNames" placeholder="örn. Domates" /></div>
+    <div class="field"><label>Miktar ve birim</label><div class="item-row" style="grid-template-columns:1fr 100px"><input class="qty" id="pQty" inputmode="decimal" placeholder="1" value="1" /><select id="pUnit">${UNITS.map((u) => `<option>${u}</option>`).join("")}</select></div></div>
+    <div class="field"><label>Ödenen toplam fiyat</label><div class="amount-input"><span class="cur">${sym()}</span><input id="pTotal" inputmode="decimal" placeholder="0" /></div><div class="conv-hint" id="pUnitHint"></div></div>
+    <div class="field"><label>Nereden? <span class="muted">(isteğe bağlı)</span></label><input class="input" id="pVendor" list="dlVendors2" placeholder="market / pazar" /></div>
+    <div class="field"><label>Tarih</label><input class="input" id="pDate" type="date" value="${isoDate(new Date())}" /></div>
+    <button class="btn" id="pSave">Kaydet</button><div class="spacer"></div>
+    <datalist id="dlPNames">${names.map((n) => `<option value="${escapeHtml(n)}">`).join("")}</datalist>
+    <datalist id="dlVendors2">${distinct("vendor").map((v) => `<option value="${escapeHtml(v)}">`).join("")}</datalist>`);
+  const upd = () => { const q = parseAmount($("#pQty").value) || 1, tt = parseAmount($("#pTotal").value), h = $("#pUnitHint"); h.textContent = tt > 0 ? `Birim fiyat: ${money(tt / q)} / ${$("#pUnit").value}` : ""; };
+  $("#pQty").addEventListener("input", upd); $("#pTotal").addEventListener("input", upd); $("#pUnit").addEventListener("change", upd);
+  $("#pSave").addEventListener("click", async () => {
+    const name = $("#pName").value.trim(), qty = parseAmount($("#pQty").value) || 1, total = parseAmount($("#pTotal").value);
+    if (!name) { toast("Ürün adı gir"); return; } if (total <= 0) { toast("Fiyat gir"); return; }
+    const p = { id: DB.uid("price"), name, qty, unit: $("#pUnit").value, total, vendor: $("#pVendor").value.trim(), currency: state.settings.currency, date: ($("#pDate").value || isoDate(new Date())) + "T12:00", createdAt: Date.now() };
+    await DB.savePrice(p); state.prices.push(p); closeSheet(); toast("Fiyat eklendi ✓"); renderPrices();
+  });
+  setTimeout(() => $("#pName") && $("#pName").focus(), 350);
+}
+
+/* ==========================================================
    AYARLAR
 ========================================================== */
 async function renderSettings() {
@@ -625,6 +724,7 @@ function openTxForm(data) {
   state.formFrom = src.fromWallet || (state.wallets[0] && state.wallets[0].id);
   state.formTo = src.toWallet || (state.wallets[1] && state.wallets[1].id) || (state.wallets[0] && state.wallets[0].id);
   state.formInstallments = 1;
+  state.formItems = Array.isArray(src.items) ? src.items.map((x) => ({ ...x })) : [];
   const dateDefault = editing ? new Date(src.date) : new Date();
 
   openSheet(`
@@ -654,6 +754,10 @@ function openTxForm(data) {
       <div class="field" id="instField"></div>
       <div class="field"><label>Ne aldın / ne için? <span class="muted">(örn. Porsiyon Döner)</span></label><input class="input" id="fItem" list="dlItems" placeholder="Ürün veya açıklama" value="${escapeHtml(src.item || "")}" /></div>
       <div class="field"><label>Nerede / kimden?</label><input class="input" id="fVendor" list="dlVendors" placeholder="İşletme veya kişi" value="${escapeHtml(src.vendor || "")}" /></div>
+      <div class="field"><label>Kalemler / ürünler <span class="muted">(isteğe bağlı — birden çok ürün)</span></label>
+        <div class="items-list" id="itemsList"></div>
+        <button type="button" class="add-item-btn" id="addItem">＋ Kalem ekle</button>
+        <div class="items-total hidden" id="itemsTotal"></div></div>
       <div class="field"><label>Etiketler <span class="muted">(virgülle ayır)</span></label><input class="input" id="fTags" placeholder="örn. nakit, iş, tatil" value="${escapeHtml((src.tags || []).join(", "))}" /></div>
       <div class="field"><label>Fiş / fotoğraf</label><div id="photoBox"></div><input type="file" id="fPhoto" accept="image/*" capture="environment" class="hidden" /></div>
     </div>
@@ -667,7 +771,8 @@ function openTxForm(data) {
     <datalist id="dlItems">${distinct("item").map((v) => `<option value="${escapeHtml(v)}">`).join("")}</datalist>
     <datalist id="dlVendors">${distinct("vendor").map((v) => `<option value="${escapeHtml(v)}">`).join("")}</datalist>`);
 
-  renderChips(); renderWalletChips(); renderPhotoBox(); updateConvHint(); renderInstField(editing, src);
+  renderChips(); renderWalletChips(); renderPhotoBox(); updateConvHint(); renderInstField(editing, src); renderItems();
+  $("#addItem").addEventListener("click", () => { state.formItems.push({ name: "", qty: null, unit: "adet", total: null }); renderItems(); });
 
   $("#segType").addEventListener("click", (e) => {
     const b = e.target.closest("[data-type]"); if (!b) return;
@@ -735,6 +840,48 @@ function updateInstHint() {
   if (amt > 0) { const part = Math.round((amt / n) * 100) / 100; h.textContent = `Toplam ${money(amt, state.formCurrency)} → ${n} ay boyunca her ayın ${day}'inde ${money(part, state.formCurrency)}`; }
   else h.textContent = `${n} eşit taksite bölünür`;
 }
+
+function renderItems() {
+  const list = $("#itemsList"); if (!list) return;
+  list.innerHTML = state.formItems.map((it, i) => `
+    <div class="item-row" data-i="${i}">
+      <input data-f="name" placeholder="Ürün" value="${escapeHtml(it.name || "")}" />
+      <input data-f="qty" class="qty" inputmode="decimal" placeholder="1" value="${it.qty != null ? String(it.qty).replace(".", ",") : ""}" />
+      <select data-f="unit">${UNITS.map((u) => `<option ${it.unit === u ? "selected" : ""}>${u}</option>`).join("")}</select>
+      <input data-f="total" class="tot" inputmode="decimal" placeholder="${sym(state.formCurrency)}" value="${it.total != null ? String(it.total).replace(".", ",") : ""}" />
+      <button type="button" class="rm-item" data-rm="${i}">✕</button>
+      <div class="unitp">${it.qty && it.total ? "Birim: " + money(it.total / it.qty, state.formCurrency) + " / " + (it.unit || "adet") : ""}</div>
+    </div>`).join("");
+  list.querySelectorAll(".item-row").forEach((row) => {
+    const i = +row.dataset.i;
+    row.querySelectorAll("[data-f]").forEach((inp) => {
+      const ev = inp.tagName === "SELECT" ? "change" : "input";
+      inp.addEventListener(ev, () => updateItemField(i, inp.dataset.f, inp));
+    });
+    row.querySelector("[data-rm]").addEventListener("click", () => { state.formItems.splice(i, 1); renderItems(); });
+  });
+  recalcItemsTotal();
+}
+function updateItemField(i, f, inp) {
+  if (f === "qty" || f === "total") state.formItems[i][f] = parseAmount(inp.value); else state.formItems[i][f] = inp.value;
+  const row = $(`.item-row[data-i="${i}"]`);
+  if (row) { const it = state.formItems[i], up = row.querySelector(".unitp"); if (up) up.textContent = it.qty && it.total ? "Birim: " + money(it.total / it.qty, state.formCurrency) + " / " + (it.unit || "adet") : ""; }
+  recalcItemsTotal();
+}
+function recalcItemsTotal() {
+  const box = $("#itemsTotal"), amt = $("#fAmount"); if (!box) return;
+  const valid = state.formItems.filter((it) => it.total > 0);
+  if (valid.length) {
+    const sum = valid.reduce((a, b) => a + (b.total || 0), 0);
+    box.classList.remove("hidden");
+    box.innerHTML = `<span>Toplam (${valid.length} kalem)</span><span>${money(sum, state.formCurrency)}</span>`;
+    if (amt) { amt.value = String(sum).replace(".", ","); amt.disabled = true; amt.style.opacity = "0.55"; }
+    updateConvHint(); updateInstHint();
+  } else {
+    box.classList.add("hidden"); box.innerHTML = "";
+    if (amt) { amt.disabled = false; amt.style.opacity = "1"; }
+  }
+}
 function renderWalletChips() {
   const box = $("#fWallets"); if (!box) return;
   box.innerHTML = state.wallets.map((w) => `<button class="chip ${state.formWallet === w.id ? "active" : ""}" data-wal="${w.id}"><span class="e">${w.icon}</span>${escapeHtml(w.name)}</button>`).join("");
@@ -769,22 +916,24 @@ async function saveTxFromForm() {
     if (!state.formCat) { toast("Bir kategori seç"); return; }
     const tags = $("#fTags").value.split(",").map((s) => s.trim()).filter(Boolean);
     const item = $("#fItem").value.trim(), vendor = $("#fVendor").value.trim(), note = $("#fNote").value.trim();
+    const items = state.formItems.filter((it) => it.name && it.name.trim() && it.total > 0).map((it) => ({ name: it.name.trim(), qty: it.qty || 1, unit: it.unit || "adet", total: it.total }));
+    const finalAmount = items.length ? Math.round(items.reduce((a, b) => a + b.total, 0) * 100) / 100 : amount;
 
-    // Taksitli: yeni kayıtta aylara böl
+    // Taksitli: yeni kayıtta aylara böl (kalemler yalnızca ilk takside)
     if (!state.editId && state.formInstallments > 1) {
-      const n = state.formInstallments, total = amount, part = Math.round((total / n) * 100) / 100;
+      const n = state.formInstallments, total = finalAmount, part = Math.round((total / n) * 100) / 100;
       const instId = DB.uid("ins"), baseDate = new Date(dateVal);
       for (let k = 0; k < n; k++) {
         const partAmt = k === n - 1 ? Math.round((total - part * (n - 1)) * 100) / 100 : part;
         const d = addMonths(baseDate, k);
-        const tt = { id: DB.uid("tx"), type: state.formType, amount: partAmt, currency: cur, rate, baseAmount: toBase(partAmt, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: k === 0 ? (state.formPhoto || null) : null, date: toLocalInput(d), createdAt: Date.now() + k, installmentId: instId, installmentNo: k + 1, installmentCount: n, installmentTotal: total };
+        const tt = { id: DB.uid("tx"), type: state.formType, amount: partAmt, currency: cur, rate, baseAmount: toBase(partAmt, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: k === 0 ? (state.formPhoto || null) : null, items: k === 0 && items.length ? items : undefined, date: toLocalInput(d), createdAt: Date.now() + k, installmentId: instId, installmentNo: k + 1, installmentCount: n, installmentTotal: total };
         await DB.saveTransaction(tt); state.transactions.push(tt);
       }
       await DB.setMeta("lastWallet", state.formWallet);
       closeSheet(); toast(`${n} taksit oluşturuldu ✓`); refreshActiveView(); return;
     }
 
-    t = { id: state.editId || DB.uid("tx"), type: state.formType, amount, currency: cur, rate, baseAmount: toBase(amount, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: state.formPhoto || null, date: dateVal, createdAt };
+    t = { id: state.editId || DB.uid("tx"), type: state.formType, amount: finalAmount, currency: cur, rate, baseAmount: toBase(finalAmount, cur), categoryId: state.formCat, walletId: state.formWallet, item, vendor, tags, note, photo: state.formPhoto || null, items: items.length ? items : undefined, date: dateVal, createdAt };
     const old = state.editId && state.transactions.find((x) => x.id === state.editId);
     if (old && old.recurringId) t.recurringId = old.recurringId;
     if (old && old.installmentId) { t.installmentId = old.installmentId; t.installmentNo = old.installmentNo; t.installmentCount = old.installmentCount; t.installmentTotal = old.installmentTotal; }
@@ -1097,6 +1246,7 @@ function bindGlobalEvents() {
     const goto = e.target.closest("[data-goto]"); if (goto) return navTo(goto.dataset.goto);
     const quick = e.target.closest("[data-quick]"); if (quick) { const q = (state._templates || [])[+quick.dataset.quick]; if (q) openTxForm({ type: "expense", categoryId: q.categoryId, item: q.item, vendor: q.vendor, amount: q.amount, currency: q.currency, walletId: q.walletId }); return; }
     const editBtn = e.target.closest("[data-edit]"); if (editBtn) { const t = state.transactions.find((x) => x.id === editBtn.dataset.edit); if (t) openTxForm(t); return; }
+    const priceDetail = e.target.closest("[data-price-detail]"); if (priceDetail) return openPriceDetail(priceDetail.dataset.priceDetail);
     const filter = e.target.closest("[data-filter]"); if (filter) { state.txFilter = filter.dataset.filter; return renderTx(); }
     const range = e.target.closest("[data-range]"); if (range) { state.txRange = range.dataset.range; return renderTx(); }
     const txv = e.target.closest("[data-txview]"); if (txv) { state.txView = txv.dataset.txview; return renderTx(); }
@@ -1121,6 +1271,7 @@ function bindGlobalEvents() {
       else if (a === "export") exportData();
       else if (a === "csv") exportCSV();
       else if (a === "import") el("importFile").click();
+      else if (a === "add-price") openPriceForm();
       else if (a === "pdf") exportPDF();
       else if (a === "wipe") wipeData();
       else if (a === "changepin") openPinSetup(() => renderSettings());
@@ -1145,6 +1296,7 @@ async function loadData() {
   state.recurring = await DB.getRecurring();
   state.wallets = await DB.getWallets();
   state.goals = await DB.getGoals();
+  state.prices = await DB.getPrices();
   state.settings.theme = await DB.getMeta("theme", "system");
   state.settings.currency = await DB.getMeta("currency", "TRY");
   state.rates = await DB.getMeta("rates", null);

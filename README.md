@@ -10,6 +10,8 @@ Bir **PWA** (Progressive Web App) olarak çalışır: tarayıcıda açıp "Ana e
 
 **Temel:**
 - **Harcama & gelir ekle:** tutar, kategori, *nereden* (işletme/kişi), *ne aldın* (ürün), tarih-saat, etiketler, fiş fotoğrafı, not.
+- **🧾 Çok kalemli harcama:** tek bir gidere birden çok ürün ekle; her biri için **miktar + birim** (5 adet, 3 kg, 1 lt...) ve tutar gir → toplam otomatik hesaplanır. Bu kalemler **Fiyatlar** bölümünü de otomatik besler.
+- **🏷️ Fiyatlar bölümü (ayrı ekran):** sadece fiyat takibi için. "1 kg domates şu tarihte şu fiyat" diye kaydet; her ürünün **birim fiyat geçmişini** (en düşük/yüksek/ortalama + artış-azalış) gör. Giderlere eklediğin kalemler de burada görünür.
 - **Özet ekranı:** toplam bakiye + bu ayki gelir/gider + bütçe uyarıları + hızlı ekle kısayolları + son işlemler.
 - **İşlemler:** güne göre gruplanmış liste; arama (ürün/yer/etiket), gelir-gider filtresi ve **tarih aralığı** (bu ay, geçen ay, 7/30 gün).
 - **Açık / Koyu / Sistem teması**, **çoklu para birimi** (₺, $, €, £…).
