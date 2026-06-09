@@ -12,9 +12,9 @@ const UNITS = ["adet", "kg", "g", "lt", "ml", "paket", "porsiyon", "kutu", "metr
    Durum
 ========================================================== */
 const state = {
-  transactions: [], categories: [], budgets: [], recurring: [], wallets: [], goals: [], prices: [],
+  transactions: [], categories: [], budgets: [], recurring: [], wallets: [], goals: [], prices: [], debts: [],
   rates: null,
-  settings: { theme: "system", currency: "TRY" },
+  settings: { theme: "system", currency: "TRY", accent: "indigo" },
   month: monthKey(new Date()),
   statsMode: "month", statsYear: new Date().getFullYear(),
   txFilter: "all", txRange: "all", txSearch: "", txView: "list",
@@ -43,10 +43,18 @@ function money(n, cur) {
 }
 function sym(cur) { return CURRENCY_SYMBOLS[cur || state.settings.currency] || (cur || "₺"); }
 
+function isExpr(str) { return /[0-9.)]\s*[+\-*/]\s*[-(]?\d/.test(String(str).replace(/,/g, ".")); }
 function parseAmount(str) {
-  str = String(str).trim().replace(/[^\d.,-]/g, "");
-  if (str.includes(",")) str = str.replace(/\./g, "").replace(",", ".");
-  const n = parseFloat(str); return isNaN(n) ? 0 : n;
+  if (str == null) return 0;
+  const raw = String(str).trim();
+  const expr = raw.replace(/\s+/g, "").replace(/,/g, ".");
+  // Hesap makinesi: "1500+200", "12.5*3" gibi ifadeleri güvenle hesapla
+  if (isExpr(raw) && /^[-+]?[\d.+\-*/()]+$/.test(expr)) {
+    try { const v = Function('"use strict";return(' + expr + ")")(); if (typeof v === "number" && isFinite(v)) return Math.round(v * 100) / 100; } catch (e) {}
+  }
+  let s = raw.replace(/[^\d.,-]/g, "");
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(s); return isNaN(n) ? 0 : n;
 }
 
 const MONTHS_TR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
@@ -73,7 +81,26 @@ function walletById(id) { return state.wallets.find((w) => w.id === id) || { nam
 function budgetFor(catId) { return state.budgets.find((b) => b.categoryId === catId); }
 
 let toastTimer;
-function toast(msg) { const t = el("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); }
+function toast(msg) { const t = el("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200); if (/✓/.test(msg)) haptic(14); }
+
+function haptic(ms = 12) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// Sayı sayma animasyonu: [data-count] olan elemanları 0'dan değere getirir
+function animateCounts(root) {
+  if (!root) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  root.querySelectorAll("[data-count]").forEach((node) => {
+    const to = parseFloat(node.dataset.count) || 0, cur = node.dataset.cur || state.settings.currency;
+    if (!to) return;
+    const dur = 550, start = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - p, 3);
+      node.textContent = money(to * e, cur);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
 
 function distinct(field) { const s = new Set(); state.transactions.forEach((t) => { const v = (t[field] || "").trim(); if (v) s.add(v); }); return [...s].sort(); }
 
@@ -88,6 +115,10 @@ function getRate(cur) {
 }
 function toBase(amount, cur) { const r = getRate(cur || state.settings.currency); return r != null ? amount * r : amount; }
 function baseOf(t) { return t.baseAmount != null ? t.baseAmount : t.amount; }
+// Taksitli bir planın ilk taksidi dışındaki parçaları (fiyat/enflasyon hesaplarında yok say)
+function isInstallmentDup(t) { return t.installmentCount > 1 && t.installmentNo > 1; }
+// Ürün fiyatı: taksitliyse toplam alış fiyatı, değilse tutarın kendisi
+function effPrice(t) { return t.installmentCount > 1 ? (t.installmentTotal || t.amount) : t.amount; }
 
 async function ensureRates() {
   const base = state.settings.currency;
@@ -111,11 +142,31 @@ function applyTheme() {
 }
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (state.settings.theme === "system") applyTheme(); });
 
+/* Aksan rengi */
+const ACCENTS = {
+  indigo: { main: "#6366f1", press: "#5457e5", a2: "#8b5cf6" },
+  violet: { main: "#7c3aed", press: "#6d28d9", a2: "#a855f7" },
+  emerald: { main: "#10b981", press: "#059669", a2: "#34d399" },
+  rose: { main: "#e11d48", press: "#be123c", a2: "#fb7185" },
+  amber: { main: "#f59e0b", press: "#d97706", a2: "#fbbf24" },
+  sky: { main: "#0ea5e9", press: "#0284c7", a2: "#38bdf8" }
+};
+function hexToRgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; }
+function applyAccent() {
+  const c = ACCENTS[state.settings.accent] || ACCENTS.indigo, r = document.documentElement.style;
+  r.setProperty("--accent", c.main);
+  r.setProperty("--accent2", c.a2);
+  r.setProperty("--accent-press", c.press);
+  r.setProperty("--accent-soft", hexToRgba(c.main, 0.14));
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", c.main);
+}
+
 /* ==========================================================
    Navigasyon + geri tuşu
 ========================================================== */
-const VIEWS = { home: "view-home", tx: "view-tx", stats: "view-stats", prices: "view-prices", settings: "view-settings" };
-const RENDERERS = { home: renderHome, tx: renderTx, stats: renderStats, prices: renderPrices, settings: renderSettings };
+const VIEWS = { home: "view-home", tx: "view-tx", stats: "view-stats", prices: "view-prices", debts: "view-debts", flow: "view-flow", settings: "view-settings" };
+const RENDERERS = { home: renderHome, tx: renderTx, stats: renderStats, prices: renderPrices, debts: renderDebts, flow: renderFlow, settings: renderSettings };
 
 function navTo(key) {
   Object.values(VIEWS).forEach((id) => el(id).classList.remove("active"));
@@ -125,7 +176,7 @@ function navTo(key) {
 }
 function refreshActiveView() { const a = document.querySelector(".nav-item.active"); if (a) RENDERERS[a.dataset.nav](); }
 
-let skipPop = false, exitArmed = false;
+let skipPop = false, exitArmed = false, swipeSuppressClick = false;
 function isSheetOpen() { return el("sheet").classList.contains("open"); }
 function handlePop() {
   if (skipPop) { skipPop = false; return; }
@@ -193,16 +244,17 @@ function renderHome() {
   const all = totals(state.transactions);
   const thisKey = monthKey(new Date());
   const tm = totals(monthTx(thisKey));
-  const recent = sortedTx().slice(0, 6);
+  // En son EKLENEN işlemler (giriş sırası), tarihe göre değil
+  const recent = [...state.transactions].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6);
 
   let html = `
     <div class="page-head"><div><h1>Merhaba 👋</h1><div class="sub">${fmtMonthYear(thisKey)}</div></div></div>
     <div class="balance-card">
       <div class="label">Toplam Bakiye</div>
-      <div class="amount">${money(all.net)}</div>
+      <div class="amount"><span data-count="${all.net}">${money(all.net)}</span></div>
       <div class="row">
-        <div class="pill"><div class="t">↓ Bu ay gelir</div><div class="v">${money(tm.income)}</div></div>
-        <div class="pill"><div class="t">↑ Bu ay gider</div><div class="v">${money(tm.expense)}</div></div>
+        <div class="pill"><div class="t">↓ Bu ay gelir</div><div class="v"><span data-count="${tm.income}">${money(tm.income)}</span></div></div>
+        <div class="pill"><div class="t">↑ Bu ay gider</div><div class="v"><span data-count="${tm.expense}">${money(tm.expense)}</span></div></div>
       </div>
     </div>`;
 
@@ -215,11 +267,14 @@ function renderHome() {
       `</div>`;
   }
 
-  // Fiyat takibi girişi
-  html += `<button class="card" data-goto="prices" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-top:14px">
-      <span style="font-size:22px">🏷️</span>
-      <span style="flex:1"><span style="font-weight:700;display:block">Fiyat Takibi</span><span class="muted" style="font-size:12.5px">Ürün fiyatlarını kaydet ve karşılaştır</span></span>
-      <span class="muted">›</span></button>`;
+  // Bölüm kısayolları
+  html += `<div class="section-head"><h2>Bölümler</h2></div>
+    <div class="tiles">
+      <button class="tile" data-goto="prices"><span class="te">🏷️</span><span class="tt">Fiyatlar</span><span class="td">Ürün fiyat takibi</span></button>
+      <button class="tile" data-goto="debts"><span class="te">🤝</span><span class="tt">Borç & Alacak</span><span class="td">${debtSummaryShort()}</span></button>
+      <button class="tile" data-goto="flow"><span class="te">📈</span><span class="tt">Nakit Akışı</span><span class="td">Abonelik & projeksiyon</span></button>
+      <button class="tile" data-goto="tx-cal"><span class="te">📅</span><span class="tt">Takvim</span><span class="td">Günlük harcama</span></button>
+    </div>`;
 
   html += budgetAlert(thisKey);
 
@@ -241,6 +296,12 @@ function renderHome() {
   html += recent.length ? '<div class="tx-list">' + recent.map(txRow).join("") + "</div>" : emptyState("🪙", "Henüz işlem yok", "Alttaki + butonuna basarak ilk kaydını ekle.");
 
   el("view-home").innerHTML = html;
+  animateCounts(el("view-home"));
+}
+
+function debtSummaryShort() {
+  const open = state.debts.filter((d) => !d.settled);
+  return open.length ? `${open.length} açık kayıt` : "Kayıt yok";
 }
 
 function shade(hex) {
@@ -415,6 +476,7 @@ function renderStats() {
     </div></div>`;
   html += state.statsMode === "year" ? renderYearStats() : renderMonthStats();
   el("view-stats").innerHTML = html;
+  animateCounts(el("view-stats"));
 
   if (state.statsMode === "month") {
     renderPriceHistory();
@@ -438,9 +500,9 @@ function renderMonthStats() {
 
   let html = `<div class="month-switch"><button data-month="-1">‹</button><div class="m">${fmtMonthYear(state.month)}</div><button data-month="1">›</button></div>
     <div class="stat-grid">
-      <div class="stat"><div class="l">Gelir ${deltaBadge(t.income, prev.income, true)}</div><div class="v income">${money(t.income)}</div></div>
-      <div class="stat"><div class="l">Gider ${deltaBadge(t.expense, prev.expense, false)}</div><div class="v expense">${money(t.expense)}</div></div></div>
-    <div class="stat" style="margin-bottom:8px"><div class="l">Kalan (Net)</div><div class="v" style="color:${t.net >= 0 ? "var(--income)" : "var(--expense)"}">${money(t.net)}</div></div>
+      <div class="stat"><div class="l">Gelir ${deltaBadge(t.income, prev.income, true)}</div><div class="v income"><span data-count="${t.income}">${money(t.income)}</span></div></div>
+      <div class="stat"><div class="l">Gider ${deltaBadge(t.expense, prev.expense, false)}</div><div class="v expense"><span data-count="${t.expense}">${money(t.expense)}</span></div></div></div>
+    <div class="stat" style="margin-bottom:8px"><div class="l">Kalan (Net)</div><div class="v" style="color:${t.net >= 0 ? "var(--income)" : "var(--expense)"}"><span data-count="${t.net}">${money(t.net)}</span></div></div>
     <button class="btn ghost" data-action="pdf" style="margin-bottom:8px">🧾 Bu ayın raporunu PDF yap</button>`;
 
   if (state.month === monthKey(new Date()) && t.expense > 0) {
@@ -451,7 +513,7 @@ function renderMonthStats() {
   html += budgetSection(byCat);
 
   if (t.expense > 0) {
-    html += `<div class="section-head"><h2>Günlük gider</h2></div><div class="card"><div class="trend">${daily.map((v) => `<div class="bar" style="height:${Math.max(3, (v / maxDaily) * 100)}%" title="${money(v)}"></div>`).join("")}</div><div class="trend-labels"><span>1</span><span>${Math.ceil(daysInMonth / 2)}</span><span>${daysInMonth}</span></div></div>`;
+    html += `<div class="section-head"><h2>Günlük gider</h2></div><div class="card"><div class="trend">${daily.map((v, i) => `<div class="bar" data-tip="${i + 1} ${MONTHS_SHORT[m - 1]}: ${money(v)}" style="height:${Math.max(3, (v / maxDaily) * 100)}%"></div>`).join("")}</div><div class="trend-labels"><span>1</span><span>${Math.ceil(daysInMonth / 2)}</span><span>${daysInMonth}</span></div></div>`;
   }
 
   html += `<div class="section-head"><h2>Kategoriye göre gider</h2></div>`;
@@ -466,6 +528,16 @@ function renderMonthStats() {
   list.filter((x) => x.type === "expense" && x.vendor).forEach((x) => { const k = x.vendor.trim(); if (!byVendor[k]) byVendor[k] = { total: 0, count: 0 }; byVendor[k].total += baseOf(x); byVendor[k].count++; });
   const vendors = Object.entries(byVendor).sort((a, b) => b[1].total - a[1].total).slice(0, 6);
   if (vendors.length) { html += `<div class="section-head"><h2>En çok harcadığın yerler</h2></div><div class="card">`; vendors.forEach(([n, v], i) => { html += `<div class="rank-row"><div class="rk">${i + 1}</div><div class="rn">${escapeHtml(n)}<div class="rc">${v.count} işlem</div></div><div class="rv">${money(v.total)}</div></div>`; }); html += "</div>"; }
+
+  // Etiketlere göre
+  const byTag = {};
+  list.filter((x) => x.type === "expense" && x.tags && x.tags.length).forEach((x) => x.tags.forEach((tg) => { byTag[tg] = (byTag[tg] || 0) + baseOf(x); }));
+  const tagList = Object.entries(byTag).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (tagList.length) {
+    html += `<div class="section-head"><h2>Etiketlere göre</h2></div><div class="card">`;
+    tagList.forEach(([tg, v]) => { html += `<div class="rank-row"><div class="rn"><span class="tag">${escapeHtml(tg)}</span></div><div class="rv">${money(v)}</div></div>`; });
+    html += "</div>";
+  }
 
   html += inflationSection();
   html += `<div class="section-head"><h2>Ürün fiyat geçmişi</h2></div><div class="search"><span class="ic">🏷️</span><input id="priceSearch" placeholder="Ürün ara: döner, kahve, ekmek..." value="${escapeHtml(state.priceSearch)}" /></div><div id="priceResult"></div>`;
@@ -490,7 +562,7 @@ function renderYearStats() {
     <div class="stat" style="margin-bottom:8px"><div class="l">Yıllık net</div><div class="v" style="color:${tot.net >= 0 ? "var(--income)" : "var(--expense)"}">${money(tot.net)}</div></div>
     <button class="btn ghost" data-action="pdf" style="margin-bottom:8px">🧾 ${yr} raporunu PDF yap</button>
     <div class="section-head"><h2>Aylara göre</h2></div>
-    <div class="card"><div class="year-bars">${monthly.map((mo) => `<div class="year-col"><div class="yi" style="height:${(mo.inc / maxV) * 100}%" title="Gelir ${money(mo.inc)}"></div><div class="ye" style="height:${(mo.exp / maxV) * 100}%" title="Gider ${money(mo.exp)}"></div></div>`).join("")}</div>
+    <div class="card"><div class="year-bars">${monthly.map((mo, i) => `<div class="year-col" data-tip="${MONTHS_TR[i]}: Gelir ${money(mo.inc)} · Gider ${money(mo.exp)}"><div class="yi" style="height:${(mo.inc / maxV) * 100}%"></div><div class="ye" style="height:${(mo.exp / maxV) * 100}%"></div></div>`).join("")}</div>
     <div class="year-labels">${MONTHS_SHORT.map((m) => `<span>${m[0]}</span>`).join("")}</div>
     <div class="legend"><span><i style="background:var(--income)"></i>Gelir</span><span><i style="background:var(--expense)"></i>Gider</span></div></div>`;
 
@@ -519,11 +591,11 @@ function budgetSection(byCat) {
 
 function inflationSection() {
   const map = {};
-  state.transactions.filter((t) => t.type === "expense" && t.item).forEach((t) => { const k = t.item.toLowerCase().trim(); (map[k] = map[k] || []).push(t); });
+  state.transactions.filter((t) => t.type === "expense" && t.item && !isInstallmentDup(t)).forEach((t) => { const k = t.item.toLowerCase().trim(); (map[k] = map[k] || []).push(t); });
   const risers = [];
   for (const k in map) {
     const arr = map[k].sort((a, b) => a.date < b.date ? -1 : 1); if (arr.length < 2) continue;
-    const first = arr[0].amount, last = arr[arr.length - 1].amount; if (first <= 0) continue;
+    const first = effPrice(arr[0]), last = effPrice(arr[arr.length - 1]); if (first <= 0) continue;
     risers.push({ name: arr[arr.length - 1].item, pct: ((last - first) / first) * 100, first, last });
   }
   if (!risers.length) return "";
@@ -537,14 +609,14 @@ function renderPriceHistory() {
   const box = el("priceResult"); if (!box) return;
   const q = state.priceSearch.toLowerCase().trim();
   if (!q) { box.innerHTML = `<div class="card center muted" style="font-size:14px">Bir ürün adı yaz, ne zaman nereden kaça aldığını gör.<br>Örn: <b>döner</b> → fiyatının zamanla değişimi.</div>`; return; }
-  const matches = state.transactions.filter((t) => t.type === "expense" && [t.item, t.vendor].some((f) => (f || "").toLowerCase().includes(q))).sort((a, b) => a.date < b.date ? -1 : 1);
+  const matches = state.transactions.filter((t) => t.type === "expense" && !isInstallmentDup(t) && [t.item, t.vendor].some((f) => (f || "").toLowerCase().includes(q))).sort((a, b) => a.date < b.date ? -1 : 1);
   if (!matches.length) { box.innerHTML = `<div class="card center muted" style="font-size:14px">"${escapeHtml(q)}" için kayıt yok.</div>`; return; }
-  const prices = matches.map((t) => t.amount), min = Math.min(...prices), max = Math.max(...prices), avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const prices = matches.map(effPrice), min = Math.min(...prices), max = Math.max(...prices), avg = prices.reduce((a, b) => a + b, 0) / prices.length;
   let html = `<div class="stat-grid"><div class="stat"><div class="l">En düşük</div><div class="v" style="font-size:17px">${money(min)}</div></div><div class="stat"><div class="l">En yüksek</div><div class="v" style="font-size:17px">${money(max)}</div></div></div><div class="stat" style="margin-bottom:10px"><div class="l">Ortalama (${matches.length} kayıt)</div><div class="v" style="font-size:17px">${money(avg)}</div></div><div class="card">`;
   [...matches].reverse().forEach((t) => {
-    const idx = matches.indexOf(t), before = idx > 0 ? matches[idx - 1].amount : null;
-    let tr = ""; if (before !== null) { if (t.amount > before) tr = `<span class="price-trend up">▲ ${money(t.amount - before)}</span>`; else if (t.amount < before) tr = `<span class="price-trend down">▼ ${money(before - t.amount)}</span>`; }
-    html += `<div class="price-row"><div><div class="when">${fmtDateLong(t.date)}</div><div class="where">${escapeHtml(t.vendor || t.item || "")}</div></div><div><span class="price">${money(t.amount, t.currency)}</span>${tr}</div></div>`;
+    const idx = matches.indexOf(t), cur = effPrice(t), before = idx > 0 ? effPrice(matches[idx - 1]) : null;
+    let tr = ""; if (before !== null) { if (cur > before) tr = `<span class="price-trend up">▲ ${money(cur - before)}</span>`; else if (cur < before) tr = `<span class="price-trend down">▼ ${money(before - cur)}</span>`; }
+    html += `<div class="price-row"><div><div class="when">${fmtDateLong(t.date)}</div><div class="where">${escapeHtml(t.vendor || t.item || "")}${t.installmentCount > 1 ? ` · ${t.installmentCount} taksit` : ""}</div></div><div><span class="price">${money(cur, t.currency)}</span>${tr}</div></div>`;
   });
   box.innerHTML = html + "</div>";
 }
@@ -558,7 +630,15 @@ function trimNum(n) { return Number(n).toLocaleString("tr-TR", { maximumFraction
 function pricePoints() {
   const pts = [];
   state.prices.forEach((p) => { const qty = p.qty || 1; pts.push({ name: p.name, unit: p.unit || "adet", unitPrice: p.total / qty, total: p.total, qty, vendor: p.vendor || "", date: p.date, currency: p.currency, src: "price", id: p.id }); });
-  state.transactions.forEach((t) => { if (t.type === "expense" && Array.isArray(t.items)) t.items.forEach((it) => { if (it.name && it.total > 0) { const qty = it.qty || 1; pts.push({ name: it.name, unit: it.unit || "adet", unitPrice: it.total / qty, total: it.total, qty, vendor: t.vendor || "", date: t.date, currency: t.currency, src: "tx", id: t.id }); } }); });
+  state.transactions.forEach((t) => {
+    if (t.type !== "expense" || isInstallmentDup(t)) return;
+    if (Array.isArray(t.items) && t.items.length) {
+      t.items.forEach((it) => { if (it.name && it.total > 0) { const qty = it.qty || 1; pts.push({ name: it.name, unit: it.unit || "adet", unitPrice: it.total / qty, total: it.total, qty, vendor: t.vendor || "", date: t.date, currency: t.currency, src: "tx", id: t.id }); } });
+    } else if (t.item) {
+      const price = effPrice(t);
+      if (price > 0) pts.push({ name: t.item, unit: "adet", unitPrice: price, total: price, qty: 1, vendor: t.vendor || "", date: t.date, currency: t.currency, src: "tx", id: t.id });
+    }
+  });
   return pts;
 }
 function groupedPrices() {
@@ -641,6 +721,140 @@ function openPriceForm() {
 }
 
 /* ==========================================================
+   Hızlı menü (FAB uzun bas)
+========================================================== */
+function openQuickMenu() {
+  openSheet(`<h2>Hızlı ekle</h2><div class="quick-menu">
+    <button data-quickadd="expense"><span class="qm-ic" style="background:var(--expense-soft)">🔴</span>Gider ekle</button>
+    <button data-quickadd="income"><span class="qm-ic" style="background:var(--income-soft)">🟢</span>Gelir ekle</button>
+    <button data-quickadd="transfer"><span class="qm-ic" style="background:var(--surface-2)">🔄</span>Transfer</button>
+    <button data-quickadd="price"><span class="qm-ic" style="background:var(--accent-soft)">🏷️</span>Fiyat ekle</button>
+    <button data-quickadd="debt"><span class="qm-ic" style="background:var(--surface-2)">🤝</span>Borç / Alacak</button>
+  </div><div class="spacer"></div>`);
+  el("sheet").querySelectorAll("[data-quickadd]").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.quickadd;
+    if (k === "price") openPriceForm(); else if (k === "debt") openDebtForm(); else openTxForm({ type: k });
+  }));
+}
+
+/* ==========================================================
+   BORÇ / ALACAK
+========================================================== */
+function debtNet() {
+  let owedToMe = 0, iOwe = 0;
+  state.debts.filter((d) => !d.settled).forEach((d) => { if (d.type === "owed") owedToMe += d.amount || 0; else iOwe += d.amount || 0; });
+  return { owedToMe, iOwe, net: owedToMe - iOwe };
+}
+function renderDebts() {
+  const open = state.debts.filter((d) => !d.settled).sort((a, b) => a.date < b.date ? 1 : -1);
+  const settled = state.debts.filter((d) => d.settled).sort((a, b) => a.date < b.date ? 1 : -1);
+  const n = debtNet();
+  let html = `<div class="page-head"><div style="display:flex;align-items:center;gap:10px">
+      <button class="icon-btn" data-goto="home">‹</button>
+      <div><h1>Borç & Alacak</h1><div class="sub">Net durum: ${money(n.net)}</div></div></div></div>
+    <button class="btn" data-action="add-debt" style="margin-bottom:14px">＋ Borç / Alacak ekle</button>
+    <div class="debt-sum">
+      <div class="stat"><div class="l">🟢 Bana borçlu</div><div class="v income" style="font-size:19px">${money(n.owedToMe)}</div></div>
+      <div class="stat"><div class="l">🔴 Benim borcum</div><div class="v expense" style="font-size:19px">${money(n.iOwe)}</div></div></div>`;
+  if (!open.length && !settled.length) html += emptyState("🤝", "Kayıt yok", "Birine olan borcunu veya birinin sana borcunu ekle.");
+  else {
+    if (open.length) html += `<div class="section-head"><h2>Açık</h2></div>` + open.map(debtRow).join("");
+    if (settled.length) html += `<div class="section-head"><h2>Kapanmış</h2></div>` + settled.map(debtRow).join("");
+  }
+  el("view-debts").innerHTML = html;
+}
+function debtRow(d) {
+  const owed = d.type === "owed", color = owed ? "var(--income)" : "var(--expense)";
+  const initial = (d.person || "?").trim().charAt(0).toUpperCase();
+  return `<div class="debt-row ${d.settled ? "settled" : ""}">
+    <div class="dav" style="background:${color}">${escapeHtml(initial)}</div>
+    <div class="dm"><div class="dn">${escapeHtml(d.person || "—")}</div>
+      <div class="dd">${owed ? "bana borçlu" : "benim borcum"}${d.note ? " · " + escapeHtml(d.note) : ""} · ${fmtDateLong(d.date)}</div></div>
+    <div class="da" style="color:${color}">${money(d.amount, d.currency)}</div>
+    <div class="dact">${d.settled ? `<button data-debt-reopen="${d.id}">↩️</button>` : `<button data-debt-settle="${d.id}">✅</button>`}<button data-debt-del="${d.id}">🗑️</button></div></div>`;
+}
+function openDebtForm() {
+  let dType = "owed";
+  openSheet(`<h2>Borç / Alacak ekle</h2>
+    <div class="segment" id="dSeg"><button class="inc active" data-dt="owed">Bana borçlu</button><button class="exp" data-dt="owe">Benim borcum</button></div>
+    <div class="field"><label>Kişi</label><input class="input" id="dPerson" placeholder="örn. Ahmet" /></div>
+    <div class="field"><div class="amount-input"><span class="cur">${sym()}</span><input id="dAmount" inputmode="decimal" placeholder="0" /></div></div>
+    <div class="field"><label>Not <span class="muted">(ne için?)</span></label><input class="input" id="dNote" placeholder="örn. yemek borcu" /></div>
+    <div class="field"><label>Tarih</label><input class="input" id="dDate" type="date" value="${isoDate(new Date())}" /></div>
+    <button class="btn" id="dSave">Kaydet</button><div class="spacer"></div>`);
+  $("#dSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-dt]"); if (!b) return; dType = b.dataset.dt; $("#dSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.dt === dType)); });
+  $("#dSave").addEventListener("click", async () => {
+    const person = $("#dPerson").value.trim(), amount = parseAmount($("#dAmount").value);
+    if (!person) { toast("Kişi adı gir"); return; } if (amount <= 0) { toast("Tutar gir"); return; }
+    const d = { id: DB.uid("debt"), type: dType, person, amount, currency: state.settings.currency, note: $("#dNote").value.trim(), date: ($("#dDate").value || isoDate(new Date())) + "T12:00", settled: false, createdAt: Date.now() };
+    await DB.saveDebt(d); state.debts.push(d); closeSheet(); toast("Eklendi ✓"); renderDebts();
+  });
+  setTimeout(() => $("#dPerson") && $("#dPerson").focus(), 350);
+}
+async function settleDebt(id, val) {
+  const d = state.debts.find((x) => x.id === id); if (!d) return;
+  d.settled = val; d.settledDate = val ? isoDate(new Date()) : null;
+  await DB.saveDebt(d); toast(val ? "Kapatıldı ✓" : "Geri açıldı"); renderDebts();
+}
+async function delDebt(id) {
+  if (!confirm("Bu kayıt silinsin mi?")) return;
+  await DB.deleteDebt(id); state.debts = state.debts.filter((x) => x.id !== id); renderDebts();
+}
+
+/* ==========================================================
+   NAKİT AKIŞI (abonelikler + projeksiyon)
+========================================================== */
+function monthlyEquivalent(r) { const a = r.amount || 0; if (r.frequency === "daily") return a * 30; if (r.frequency === "weekly") return a * 4.345; return a; }
+function simulateRecurring(from, to) {
+  let delta = 0;
+  state.recurring.forEach((r) => {
+    if (!r.active) return;
+    let d = r.nextDate, guard = 0, cur = new Date(d + "T12:00");
+    while (cur < from && guard < 800) { d = advanceDate(d, r.frequency); cur = new Date(d + "T12:00"); guard++; }
+    while (cur <= to && guard < 800) { const v = toBase(r.amount, r.currency || state.settings.currency); if (r.type === "income") delta += v; else if (r.type === "expense") delta -= v; d = advanceDate(d, r.frequency); cur = new Date(d + "T12:00"); guard++; }
+  });
+  return delta;
+}
+function projectCashflow(months) {
+  const today = new Date(); today.setHours(23, 59, 59, 0);
+  let balance = totals(state.transactions.filter((t) => new Date(t.date) <= today)).net;
+  const res = [];
+  for (let k = 0; k < months; k++) {
+    const ref = addMonths(new Date(today.getFullYear(), today.getMonth(), 15), k);
+    const y = ref.getFullYear(), m = ref.getMonth();
+    const periodStart = k === 0 ? new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 0, 0, 0) : new Date(y, m, 1, 0, 0, 0);
+    const monthEnd = new Date(y, m + 1, 0, 23, 59, 59);
+    state.transactions.forEach((t) => { const d = new Date(t.date); if (d >= periodStart && d <= monthEnd) { if (t.type === "income") balance += baseOf(t); else if (t.type === "expense") balance -= baseOf(t); } });
+    balance += simulateRecurring(periodStart, monthEnd);
+    res.push({ label: MONTHS_SHORT[m], end: balance });
+  }
+  return res;
+}
+function renderFlow() {
+  const subs = state.recurring.filter((r) => r.active && r.type === "expense").sort((a, b) => a.nextDate < b.nextDate ? -1 : 1);
+  const monthlyEq = subs.reduce((a, r) => a + monthlyEquivalent(r), 0);
+  const proj = projectCashflow(3);
+  const maxAbs = Math.max(1, ...proj.map((p) => Math.abs(p.end)));
+
+  let html = `<div class="page-head"><div style="display:flex;align-items:center;gap:10px">
+      <button class="icon-btn" data-goto="home">‹</button>
+      <div><h1>Nakit Akışı</h1><div class="sub">İleriye dönük tahmin</div></div></div></div>
+    <div class="section-head"><h2>Ay sonu tahmini bakiye</h2></div>
+    <div class="card"><div class="flow-bars">
+      ${proj.map((p) => `<div class="flow-col"><div class="fv" style="color:${p.end >= 0 ? "var(--income)" : "var(--expense)"}">${p.end < 0 ? "−" : ""}${shortMoney(Math.abs(p.end))}</div><div class="fb ${p.end >= 0 ? "pos" : "neg"}" style="height:${Math.max(4, (Math.abs(p.end) / maxAbs) * 100)}%"></div><div class="fl">${p.label}</div></div>`).join("")}
+    </div><div class="center muted" style="font-size:12px;margin-top:8px">Bugünkü bakiye + tekrarlayanlar + ileri tarihli taksitler</div></div>
+
+    <div class="section-head"><h2>Düzenli ödemeler</h2><button class="link" data-action="recurring">Yönet</button></div>`;
+  if (!subs.length) html += emptyState("🔁", "Düzenli ödeme yok", "Tekrarlayan giderlerini ekle (kira, abonelik...).");
+  else {
+    html += `<div class="stat" style="margin-bottom:10px"><div class="l">Aylık toplam (tahmini)</div><div class="v expense" style="font-size:20px">${money(monthlyEq)}</div></div><div class="card">`;
+    html += subs.map((r) => { const c = catById(r.categoryId), days = Math.ceil((new Date(r.nextDate + "T12:00") - new Date()) / 86400000); return `<div class="sub-row"><span class="se">${c.icon}</span><div class="sm"><div class="st">${escapeHtml(r.item || c.name)}</div><div class="sd">${FREQ_TR[r.frequency]} · ${days <= 0 ? "bugün / gecikmiş" : days + " gün sonra"} · ${fmtDateLong(r.nextDate + "T12:00")}</div></div><div class="sa expense">${money(r.amount, r.currency)}</div></div>`; }).join("");
+    html += "</div>";
+  }
+  el("view-flow").innerHTML = html;
+}
+
+/* ==========================================================
    AYARLAR
 ========================================================== */
 async function renderSettings() {
@@ -656,6 +870,8 @@ async function renderSettings() {
     <div class="settings-group">
       <div class="settings-item"><div class="si-ic">🎨</div><div class="si-main"><div class="si-title">Görünüm</div><div class="si-desc">Tema tercihi</div></div>
         <div class="theme-toggle">${["system", "light", "dark"].map((m) => `<button data-theme-set="${m}" class="${state.settings.theme === m ? "active" : ""}">${m === "system" ? "Sistem" : m === "light" ? "Açık" : "Koyu"}</button>`).join("")}</div></div>
+      <div class="settings-item"><div class="si-ic">🎨</div><div class="si-main"><div class="si-title">Vurgu rengi</div><div class="si-desc">Uygulama aksan rengi</div></div>
+        <div class="accent-dots">${Object.keys(ACCENTS).map((k) => `<button data-accent="${k}" class="${state.settings.accent === k ? "active" : ""}" style="background:${ACCENTS[k].main}" aria-label="${k}"></button>`).join("")}</div></div>
       <div class="settings-item"><div class="si-ic">💱</div><div class="si-main"><div class="si-title">Para birimi</div><div class="si-desc">Ana birim · kurlar otomatik güncellenir</div></div>
         <select class="cur-select" id="curSelect">${CURRENCIES.map((c) => `<option value="${c}" ${state.settings.currency === c ? "selected" : ""}>${c} ${CURRENCY_SYMBOLS[c] || ""}</option>`).join("")}</select></div>
     </div>
@@ -1238,15 +1454,27 @@ async function wipeData() { if (!confirm("TÜM verilerin kalıcı olarak silinec
    Olaylar
 ========================================================== */
 function bindGlobalEvents() {
-  document.querySelectorAll(".nav-item").forEach((b) => b.addEventListener("click", () => navTo(b.dataset.nav)));
-  el("fab").addEventListener("click", () => openTxForm(null));
+  document.querySelectorAll(".nav-item").forEach((b) => b.addEventListener("click", () => { haptic(8); navTo(b.dataset.nav); }));
+
+  const fab = el("fab");
+  let lpTimer = null, lpFired = false;
+  fab.addEventListener("touchstart", () => { lpFired = false; lpTimer = setTimeout(() => { lpFired = true; haptic(20); openQuickMenu(); }, 450); }, { passive: true });
+  fab.addEventListener("touchend", () => clearTimeout(lpTimer));
+  fab.addEventListener("touchmove", () => clearTimeout(lpTimer));
+  fab.addEventListener("contextmenu", (e) => { e.preventDefault(); lpFired = true; haptic(20); openQuickMenu(); });
+  fab.addEventListener("click", () => { if (lpFired) { lpFired = false; return; } haptic(10); openTxForm(null); });
   el("backdrop").addEventListener("click", closeSheet);
 
   document.querySelector(".app").addEventListener("click", (e) => {
-    const goto = e.target.closest("[data-goto]"); if (goto) return navTo(goto.dataset.goto);
+    const goto = e.target.closest("[data-goto]"); if (goto) { const g = goto.dataset.goto; if (g === "tx-cal") { state.txView = "calendar"; return navTo("tx"); } return navTo(g); }
+    const tip = e.target.closest("[data-tip]"); if (tip) return toast(tip.dataset.tip);
     const quick = e.target.closest("[data-quick]"); if (quick) { const q = (state._templates || [])[+quick.dataset.quick]; if (q) openTxForm({ type: "expense", categoryId: q.categoryId, item: q.item, vendor: q.vendor, amount: q.amount, currency: q.currency, walletId: q.walletId }); return; }
-    const editBtn = e.target.closest("[data-edit]"); if (editBtn) { const t = state.transactions.find((x) => x.id === editBtn.dataset.edit); if (t) openTxForm(t); return; }
+    const editBtn = e.target.closest("[data-edit]"); if (editBtn) { if (swipeSuppressClick) return; const t = state.transactions.find((x) => x.id === editBtn.dataset.edit); if (t) openTxForm(t); return; }
     const priceDetail = e.target.closest("[data-price-detail]"); if (priceDetail) return openPriceDetail(priceDetail.dataset.priceDetail);
+    const acc = e.target.closest("[data-accent]"); if (acc) { state.settings.accent = acc.dataset.accent; DB.setMeta("accent", state.settings.accent); applyAccent(); haptic(10); return renderSettings(); }
+    const dSettle = e.target.closest("[data-debt-settle]"); if (dSettle) return settleDebt(dSettle.dataset.debtSettle, true);
+    const dReopen = e.target.closest("[data-debt-reopen]"); if (dReopen) return settleDebt(dReopen.dataset.debtReopen, false);
+    const dDel = e.target.closest("[data-debt-del]"); if (dDel) return delDebt(dDel.dataset.debtDel);
     const filter = e.target.closest("[data-filter]"); if (filter) { state.txFilter = filter.dataset.filter; return renderTx(); }
     const range = e.target.closest("[data-range]"); if (range) { state.txRange = range.dataset.range; return renderTx(); }
     const txv = e.target.closest("[data-txview]"); if (txv) { state.txView = txv.dataset.txview; return renderTx(); }
@@ -1272,9 +1500,45 @@ function bindGlobalEvents() {
       else if (a === "csv") exportCSV();
       else if (a === "import") el("importFile").click();
       else if (a === "add-price") openPriceForm();
+      else if (a === "add-debt") openDebtForm();
       else if (a === "pdf") exportPDF();
       else if (a === "wipe") wipeData();
       else if (a === "changepin") openPinSetup(() => renderSettings());
+    }
+  });
+
+  // Sola/sağa kaydırma: sil / düzenle
+  const app = document.querySelector(".app");
+  let sw = null;
+  app.addEventListener("touchstart", (e) => {
+    const row = e.target.closest(".tx");
+    if (!row || isSheetOpen()) { sw = null; return; }
+    const t = e.touches[0];
+    sw = { row, id: row.dataset.edit, x0: t.clientX, y0: t.clientY, dx: 0, locked: null };
+  }, { passive: true });
+  app.addEventListener("touchmove", (e) => {
+    if (!sw) return;
+    const t = e.touches[0], dx = t.clientX - sw.x0, dy = t.clientY - sw.y0;
+    if (sw.locked === null) { if (Math.abs(dx) > Math.abs(dy) + 6) sw.locked = "h"; else if (Math.abs(dy) > 6) sw.locked = "v"; }
+    if (sw.locked === "h") {
+      e.preventDefault();
+      sw.dx = Math.max(-140, Math.min(140, dx));
+      sw.row.classList.add("swiping");
+      sw.row.style.transform = `translateX(${sw.dx}px)`;
+      sw.row.classList.toggle("swipe-del", sw.dx < -30);
+      sw.row.classList.toggle("swipe-edit", sw.dx > 30);
+    }
+  }, { passive: false });
+  app.addEventListener("touchend", () => {
+    if (!sw) return;
+    const cur = sw; sw = null;
+    cur.row.classList.remove("swiping", "swipe-del", "swipe-edit");
+    cur.row.style.transform = "";
+    if (cur.locked === "h" && Math.abs(cur.dx) >= 90) {
+      swipeSuppressClick = true; setTimeout(() => { swipeSuppressClick = false; }, 400);
+      haptic(15);
+      const tObj = state.transactions.find((x) => x.id === cur.id); if (!tObj) return;
+      if (cur.dx <= -90) deleteTx(cur.id); else openTxForm(tObj);
     }
   });
 
@@ -1297,8 +1561,10 @@ async function loadData() {
   state.wallets = await DB.getWallets();
   state.goals = await DB.getGoals();
   state.prices = await DB.getPrices();
+  state.debts = await DB.getDebts();
   state.settings.theme = await DB.getMeta("theme", "system");
   state.settings.currency = await DB.getMeta("currency", "TRY");
+  state.settings.accent = await DB.getMeta("accent", "indigo");
   state.rates = await DB.getMeta("rates", null);
   state.statsYear = new Date().getFullYear();
 }
@@ -1308,6 +1574,7 @@ async function init() {
   await DB.ensureSeed();
   await loadData();
   applyTheme();
+  applyAccent();
   if (await DB.getMeta("lockEnabled", false)) await showLock();
   await runRecurring();
   bindGlobalEvents();

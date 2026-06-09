@@ -2,7 +2,7 @@
 // Tüm veriler telefonun içinde (IndexedDB) saklanır. Sunucu yok.
 
 const DB_NAME = "mani-db";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const DEFAULT_CATEGORIES = [
   // Giderler
@@ -54,6 +54,8 @@ function openDB() {
       if (!db.objectStoreNames.contains("goals")) db.createObjectStore("goals", { keyPath: "id" });
       // v4
       if (!db.objectStoreNames.contains("prices")) db.createObjectStore("prices", { keyPath: "id" });
+      // v5
+      if (!db.objectStoreNames.contains("debts")) db.createObjectStore("debts", { keyPath: "id" });
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
@@ -113,30 +115,35 @@ const DB = {
   savePrice: (p) => put("prices", p),
   deletePrice: (id) => del("prices", id),
 
+  getDebts: () => getAll("debts"),
+  saveDebt: (d) => put("debts", d),
+  deleteDebt: (id) => del("debts", id),
+
   getMeta: (key, fallback = null) =>
     tx("meta").then((s) => reqToPromise(s.get(key))).then((r) => (r ? r.value : fallback)),
   setMeta: (key, value) => put("meta", { key, value }),
   delMeta: (key) => del("meta", key),
 
   async exportAll() {
-    const [transactions, categories, budgets, recurring, wallets, goals, prices] = await Promise.all([
-      getAll("transactions"), getAll("categories"), getAll("budgets"), getAll("recurring"), getAll("wallets"), getAll("goals"), getAll("prices")
+    const [transactions, categories, budgets, recurring, wallets, goals, prices, debts] = await Promise.all([
+      getAll("transactions"), getAll("categories"), getAll("budgets"), getAll("recurring"), getAll("wallets"), getAll("goals"), getAll("prices"), getAll("debts")
     ]);
     const theme = await this.getMeta("theme", "system");
     const currency = await this.getMeta("currency", "TRY");
+    const accent = await this.getMeta("accent", "indigo");
     return {
-      app: "Mani", version: 4, exportedAt: new Date().toISOString(),
-      data: { transactions, categories, budgets, recurring, wallets, goals, prices, settings: { theme, currency } }
+      app: "Mani", version: 5, exportedAt: new Date().toISOString(),
+      data: { transactions, categories, budgets, recurring, wallets, goals, prices, debts, settings: { theme, currency, accent } }
     };
   },
 
   async importAll(payload, { merge = false } = {}) {
     if (!payload || !payload.data) throw new Error("Geçersiz yedek dosyası.");
-    const { transactions = [], categories = [], budgets = [], recurring = [], wallets = [], goals = [], prices = [], settings = {} } = payload.data;
+    const { transactions = [], categories = [], budgets = [], recurring = [], wallets = [], goals = [], prices = [], debts = [], settings = {} } = payload.data;
     if (!merge) {
       await clearStore("transactions"); await clearStore("categories");
       await clearStore("budgets"); await clearStore("recurring");
-      await clearStore("wallets"); await clearStore("goals"); await clearStore("prices");
+      await clearStore("wallets"); await clearStore("goals"); await clearStore("prices"); await clearStore("debts");
     }
     for (const c of categories) await put("categories", c);
     for (const t of transactions) await put("transactions", t);
@@ -145,12 +152,14 @@ const DB = {
     for (const w of wallets) await put("wallets", w);
     for (const g of goals) await put("goals", g);
     for (const p of prices) await put("prices", p);
+    for (const d of debts) await put("debts", d);
     if (settings.theme) await this.setMeta("theme", settings.theme);
     if (settings.currency) await this.setMeta("currency", settings.currency);
+    if (settings.accent) await this.setMeta("accent", settings.accent);
   },
 
   async wipe() {
-    for (const s of ["transactions", "categories", "budgets", "recurring", "wallets", "goals", "prices", "meta"]) await clearStore(s);
+    for (const s of ["transactions", "categories", "budgets", "recurring", "wallets", "goals", "prices", "debts", "meta"]) await clearStore(s);
   }
 };
 

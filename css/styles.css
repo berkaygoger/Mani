@@ -5,6 +5,7 @@
 
 :root {
   --accent: #6366f1;
+  --accent2: #8b5cf6;
   --accent-soft: #eef0ff;
   --accent-press: #5457e5;
 
@@ -150,7 +151,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 
 /* Bakiye kartı */
 .balance-card {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
   color: #fff;
   border-radius: var(--r-xl);
   padding: 22px;
@@ -785,3 +786,73 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 .price-item .ptrend.up { color: var(--expense); }
 .price-item .ptrend.down { color: var(--income); }
 .price-item .ptrend.flat { color: var(--text-3); }
+
+/* ============================================================
+   v5: Tiles, Borç/Alacak, Nakit Akışı, Aksan, Swipe, Hızlı menü
+   ============================================================ */
+
+/* ---- Ana ekran kısayol ızgarası ---- */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile {
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface); border-radius: var(--r-md);
+  padding: 14px; box-shadow: var(--shadow-sm); text-align: left;
+  transition: transform 0.12s;
+}
+.tile:active { transform: scale(0.97); }
+.tile .te { font-size: 22px; }
+.tile .tt { font-weight: 700; font-size: 14px; }
+.tile .td { font-size: 11.5px; color: var(--text-2); }
+
+/* ---- Aksan renk seçici ---- */
+.accent-dots { display: flex; gap: 8px; }
+.accent-dots button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; transition: transform 0.12s; }
+.accent-dots button.active { border-color: var(--text); transform: scale(1.12); }
+
+/* ---- Swipe ---- */
+.tx { position: relative; touch-action: pan-y; }
+.tx.swiping { transition: none; }
+.tx.swipe-del { background: var(--expense-soft) !important; }
+.tx.swipe-edit { background: var(--accent-soft) !important; }
+
+/* ---- Hızlı menü (FAB uzun bas) ---- */
+.quick-menu { display: flex; flex-direction: column; gap: 10px; }
+.quick-menu button {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border-radius: var(--r-md);
+  padding: 15px 16px; box-shadow: var(--shadow-sm);
+  font-size: 16px; font-weight: 600; color: var(--text);
+}
+.quick-menu button .qm-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 20px; }
+
+/* ---- Borç / Alacak ---- */
+.debt-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.debt-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border-radius: var(--r-md);
+  padding: 12px 14px; box-shadow: var(--shadow-sm); margin-bottom: 8px;
+}
+.debt-row.settled { opacity: 0.55; }
+.debt-row .dav { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.debt-row .dm { flex: 1; min-width: 0; }
+.debt-row .dn { font-weight: 600; font-size: 15px; }
+.debt-row .dd { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.debt-row .da { font-weight: 700; font-size: 15px; }
+.debt-row .dact { display: flex; gap: 6px; margin-left: 6px; }
+.debt-row .dact button { font-size: 16px; color: var(--text-3); padding: 4px; }
+
+/* ---- Nakit akışı projeksiyonu ---- */
+.flow-bars { display: flex; align-items: flex-end; gap: 10px; height: 150px; padding-top: 10px; }
+.flow-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px; }
+.flow-col .fb { width: 100%; border-radius: 8px 8px 0 0; min-height: 4px; transition: height 0.5s; }
+.flow-col .fb.pos { background: var(--income); }
+.flow-col .fb.neg { background: var(--expense); }
+.flow-col .fv { font-size: 11px; font-weight: 700; }
+.flow-col .fl { font-size: 11px; color: var(--text-3); }
+.sub-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.sub-row:last-child { border-bottom: none; }
+.sub-row .se { font-size: 20px; }
+.sub-row .sm { flex: 1; }
+.sub-row .st { font-weight: 600; font-size: 14px; }
+.sub-row .sd { font-size: 12px; color: var(--text-2); }
+.sub-row .sa { font-weight: 700; font-size: 14px; }

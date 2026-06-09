@@ -40,6 +40,17 @@ Bir **PWA** (Progressive Web App) olarak çalışır: tarayıcıda açıp "Ana e
 - **🔔 Bildirimler:** bütçe aşımı ve yaklaşan tekrarlayan ödemeler için (günde bir, uygulamayı açtığında).
 - **🧾 PDF rapor:** aylık/yıllık özeti yazdır veya "PDF olarak kaydet".
 
+**Konfor & yeni bölümler (v5):**
+- **🤝 Borç & Alacak:** kime borçlusun / kim sana borçlu; ödeyince/tahsil edince kapat. Net durum özeti.
+- **📈 Nakit Akışı:** düzenli ödemeler (abonelik/kira) tek ekranda + aylık toplam + **3 aylık tahmini bakiye** projeksiyonu (tekrarlayanlar ve ileri tarihli taksitler dahil).
+- **🎨 Vurgu rengi:** uygulamanın aksan rengini değiştir (indigo, mor, yeşil, kırmızı, amber, mavi).
+- **🧮 Tutar alanında hesap makinesi:** "1500+200" veya "12,5*3" yazıp doğrudan kaydet.
+- **➡️ Kaydırma hareketleri:** işlem satırını sola kaydır → sil, sağa kaydır → düzenle.
+- **⚡ FAB uzun bas:** doğrudan Gider/Gelir/Transfer/Fiyat/Borç hızlı menüsü.
+- **Dokunsal & görsel:** başarı bildirimlerinde titreşim, bakiye/rakamlarda sayma animasyonu, grafiklere dokununca detay.
+- **🏷️ Etiket raporu:** Analiz'de etikete göre harcama dağılımı.
+- Ana ekranda **bölüm kısayolları** (Fiyatlar, Borç/Alacak, Nakit Akışı, Takvim).
+
 **Veri:**
 - **Yedek al / geri yükle** (JSON) ve **CSV dışa aktarma** (Excel/Sheets).
 - **Kategori yönetimi:** kendi kategorilerini emoji ile ekle/sil.
